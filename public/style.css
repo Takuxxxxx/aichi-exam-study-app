@@ -193,6 +193,19 @@ select { min-width: 140px; }
 .q-points b { color: var(--primary-dark); }
 .q-points ul { margin: 6px 0 0; padding-left: 18px; }
 .q-points li { margin: 2px 0; }
+.q-hint { margin-top: 8px; }
+.hint-toggle { color: var(--primary); background: #e7f0fb; border-color: #b8d4ef; }
+.hint-toggle:hover { background: #d4e5f7; }
+.q-hint-body {
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: #fff8e6;
+  border: 1px solid #f0d9a0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--partial);
+  line-height: 1.7;
+}
 .q-answer-label { font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
 #q-answer-area textarea { width: 100%; min-height: 80px; }
 #q-answer-area input[type="text"] { width: 100%; font-size: 16px; }

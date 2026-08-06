@@ -377,11 +377,34 @@ function renderQuestion(q, index, total) {
       ? `<div class="q-points"><b>説明の観点（これを含めると高評価）:</b><ul>${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`
       : '');
   const area = $('#q-answer-area');
+  const hintWrap = $('#q-hint-wrap');
   if (q.mode === 'A') {
     area.innerHTML = `<div class="q-answer-label">空欄に入る語句を入力してください<span class="kbd">Enter で回答・採点</span></div>
       <input type="text" id="q-input" autocomplete="off" placeholder="答えを入力">`;
     $('#q-input').focus();
+    if (q.blank_word) {
+      const chars = q.blank_word.replace(/\s/g, '');
+      const first = [...chars][0] ?? '';
+      const typeHint = /[\u4e00-\u9faf]/.test(chars) ? '漢字' : /[\u30a0-\u30ff]/.test(chars) ? 'カタカナ' : 'ひらがな';
+      hintWrap.classList.remove('hidden');
+      hintWrap.innerHTML = `<button class="btn small hint-toggle" type="button">💡 ヒントを見る</button>
+        <div class="q-hint-body hidden">
+          文字数: <b>${chars.length}文字</b><br>
+          頭文字: <b>「${esc(first)}」</b><br>
+          表記: <b>${typeHint}</b>
+        </div>`;
+      hintWrap.querySelector('.hint-toggle').addEventListener('click', (e) => {
+        const body = e.currentTarget.nextElementSibling;
+        body.classList.toggle('hidden');
+        e.currentTarget.textContent = body.classList.contains('hidden') ? '💡 ヒントを見る' : '💡 ヒントを隠す';
+      });
+    } else {
+      hintWrap.classList.add('hidden');
+      hintWrap.innerHTML = '';
+    }
   } else {
+    hintWrap.classList.add('hidden');
+    hintWrap.innerHTML = '';
     area.innerHTML = `<div class="q-answer-label">説明を入力してください<span class="kbd">Ctrl+Enter で回答・採点</span></div>
       <textarea id="q-input" placeholder="例: 〜という出来事で、〜した。それにより〜になった。"></textarea>`;
     $('#q-input').focus();
