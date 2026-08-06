@@ -17,5 +17,3 @@ services:
         value: https://generativelanguage.googleapis.com/v1beta/openai
       - key: AI_MODEL
         value: gemini-3.5-flash-lite
-      - key: PORT
-        value: 3000
