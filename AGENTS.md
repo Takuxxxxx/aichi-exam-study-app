@@ -5,7 +5,7 @@
 コードを変更したら、必ず以下の手順を最後まで行う：
 
 1. **構文チェック**: 変更した JS ファイルに `node --check <file>` を実行
-2. **静的ファイル反映**: `Copy-Item public\index.html,public\app.js,public\style.css dist\public\ -Force`
+2. **静的ファイル反映**: `Copy-Item public\index.html,public\app.js,public\style.css,public\manifest.webmanifest dist\public\ -Force`
 3. **EXE 再ビルド**: `server.js` または `lib/` 配下を変更した場合は `npm run build:exe` を実行（静的ファイルのみの変更なら省略可）
 4. **動作確認**: EXE を起動して `/api/status`・UI配信・主要エンドポイントを確認し、終了する
 5. **GitHub 反映**: 変更をコミットしてプッシュする（リポジトリ: `https://github.com/Takuxxxxx/aichi-exam-app` / master ブランチ）

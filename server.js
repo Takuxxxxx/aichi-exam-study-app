@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
+import os from 'node:os';
 import { exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
@@ -11,6 +12,16 @@ import { extractPdfText } from './lib/pdf.js';
 import { generateProblems } from './lib/generator.js';
 import { gradeModeA, gradeModeB } from './lib/grader.js';
 import { updateSchedule, REQUEUE_GAP } from './lib/scheduler.js';
+
+function getLanIp() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) return net.address;
+    }
+  }
+  return null;
+}
 
 const currentDir = typeof __dirname !== 'undefined'
   ? __dirname
@@ -353,8 +364,10 @@ app.get('/api/stats', (req, res) => {
   res.json({ questions, materials, dueCount, historyCount, aiConfigured: isConfigured() });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
+  const lan = getLanIp();
   console.log(`愛知県入試対策 暗記アプリ起動中: http://localhost:${PORT}`);
+  if (lan) console.log(`スマホなど同じWi-Fiの端末から: http://${lan}:${PORT}`);
   if (!isConfigured()) {
     console.log('注意: AI_API_KEY が未設定です。.env に設定してください。');
   }

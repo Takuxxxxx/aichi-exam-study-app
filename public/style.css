@@ -208,3 +208,38 @@ tr:hover td { background: #fafbfc; }
 .hidden { display: none !important; }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------------- スマホ対応 ---------------- */
+@media (max-width: 640px) {
+  main { margin: 12px auto; padding: 0 10px; }
+  .topbar { padding: 12px 14px; }
+  .topbar h1 { font-size: 15px; margin-bottom: 8px; }
+  .tabs { display: flex; }
+  .tab { flex: 1; padding: 11px 6px; font-size: 13px; text-align: center; }
+
+  .card { padding: 14px; margin-bottom: 14px; }
+  .stats { gap: 8px; }
+  .stat-box { min-width: calc(50% - 4px); padding: 12px; }
+  .stat-box .num { font-size: 22px; }
+
+  .input-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .input-row label { margin-bottom: 0; }
+  .input-row input[type="text"], .input-row input:not([type]), .input-row select { min-width: 0; }
+
+  input[type="text"], input:not([type]), select, textarea { font-size: 16px; padding: 10px 12px; }
+
+  .btn { padding: 12px 14px; font-size: 15px; min-height: 44px; }
+  .btn.small { padding: 8px 10px; min-height: 36px; }
+
+  .q-text { font-size: 17px; }
+  #q-answer-area textarea { min-height: 90px; }
+  .result-banner { font-size: 22px; padding: 12px; }
+  .result-answer .kbd { display: none; }
+  .modal-box { padding: 14px; }
+  .modal-actions { flex-wrap: wrap; }
+
+  .material-item, .question-item { padding: 10px; }
+  .table-wrap table { font-size: 12px; }
+
+  .mode-choice { gap: 10px; }
+}
