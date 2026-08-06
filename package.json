@@ -6,7 +6,18 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "build:exe": "esbuild server.js --bundle --platform=node --format=cjs --inject:build-exe/dom-stub.js --outfile=bundle.cjs && pkg bundle.cjs --targets node22-win-x64 --fallback-to-source --output dist/aichi-exam-app.exe && node -e \"require('fs').cpSync('public','dist/public',{recursive:true})\""
+  },
+  "pkg": {
+    "assets": [
+      "public/index.html",
+      "public/app.js",
+      "public/style.css"
+    ],
+    "targets": [
+      "node22-win-x64"
+    ]
   },
   "engines": {
     "node": ">=22.5.0"
@@ -16,5 +27,9 @@
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1",
     "pdfjs-dist": "^6.2.108"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.22.0",
+    "esbuild": "^0.28.1"
   }
 }
