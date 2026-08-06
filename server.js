@@ -204,6 +204,10 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   const remaining = target - queue.length;
 
   if (remaining > 0) {
+    const existing = db.listQuestions({ materialIds: ids });
+    const avoidA = [...new Set(existing.filter((q) => q.mode === 'A').map((q) => q.blank_word).filter(Boolean))];
+    const avoidB = [...new Set(existing.filter((q) => q.mode === 'B').map((q) => q.theme).filter(Boolean))];
+
     const genCounts = new Array(materials.length).fill(0);
     for (let i = 0; i < remaining; i++) genCounts[i % materials.length]++;
 
@@ -224,6 +228,8 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
         materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
         modeACount: Math.min(modeA, 25),
         modeBCount: Math.min(modeB, 10),
+        avoidA,
+        avoidB,
       });
       if (questions.length) {
         const savedIds = db.insertQuestions(m.id, questions);
