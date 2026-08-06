@@ -1,7 +1,8 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
+import { exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import * as db from './lib/db.js';
@@ -11,7 +12,14 @@ import { generateProblems } from './lib/generator.js';
 import { gradeModeA, gradeModeB } from './lib/grader.js';
 import { updateSchedule, REQUEUE_GAP } from './lib/scheduler.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const currentDir = typeof __dirname !== 'undefined'
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
+if (process.pkg) {
+  dotenv.config({ path: path.join(path.dirname(process.execPath), '.env') });
+} else {
+  dotenv.config();
+}
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -21,7 +29,8 @@ const upload = multer({
 });
 
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+if (process.pkg) app.use(express.static(path.join(path.dirname(process.execPath), 'public')));
+app.use(express.static(path.join(currentDir, 'public')));
 
 function safe(fn) {
   return (req, res) => {
@@ -169,26 +178,44 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   }
 
   const target = Math.max(1, Math.min(Number(count) || 10, 30));
-  const perMaterial = Math.max(1, Math.ceil(target / materials.length));
   const queue = [];
 
-  for (const m of materials) {
-    const wantA = mode !== 'B';
-    const wantB = mode !== 'A';
-    const isMix = mode === 'mix';
-    const modeA = wantA ? Math.max(1, Math.round(perMaterial * (isMix ? 0.7 : 1))) : 0;
-    const modeB = wantB ? Math.max(1, Math.round(perMaterial * (isMix ? 0.3 : 1))) : 0;
-    const { questions } = await generateProblems({
-      content: m.content,
-      materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
-      modeACount: Math.min(modeA, 25),
-      modeBCount: Math.min(modeB, 10),
-    });
-    if (questions.length) {
-      const savedIds = db.insertQuestions(m.id, questions);
-      for (const id of savedIds) {
-        const q = db.getQuestion(id);
-        if (q) queue.push(q);
+  const unanswered = db.listUnansweredQuestions({
+    materialIds: ids,
+    mode: mode === 'mix' ? null : mode,
+  });
+  const reusedCount = Math.min(unanswered.length, target);
+  queue.push(...unanswered.slice(0, target));
+  const remaining = target - queue.length;
+
+  if (remaining > 0) {
+    const genCounts = new Array(materials.length).fill(0);
+    for (let i = 0; i < remaining; i++) genCounts[i % materials.length]++;
+
+    for (let mi = 0; mi < materials.length; mi++) {
+      const n = genCounts[mi];
+      if (!n) continue;
+      const m = materials[mi];
+      let modeA = 0;
+      let modeB = 0;
+      if (mode === 'A') modeA = n;
+      else if (mode === 'B') modeB = n;
+      else {
+        modeA = Math.max(1, Math.round(n * 0.7));
+        modeB = n - modeA;
+      }
+      const { questions } = await generateProblems({
+        content: m.content,
+        materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
+        modeACount: Math.min(modeA, 25),
+        modeBCount: Math.min(modeB, 10),
+      });
+      if (questions.length) {
+        const savedIds = db.insertQuestions(m.id, questions);
+        for (const id of savedIds) {
+          const q = db.getQuestion(id);
+          if (q) queue.push(q);
+        }
       }
     }
   }
@@ -203,7 +230,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
     stats: { answered: 0, correct: 0, partial: 0, wrong: 0, totalScore: 0 },
     history: [],
   });
-  res.json({ token, total: queue.length });
+  res.json({ token, total: queue.length, reused: reusedCount });
 }));
 
 function findNextQuestion(session) {
@@ -329,6 +356,15 @@ app.get('/api/stats', (req, res) => {
 app.listen(PORT, () => {
   console.log(`愛知県入試対策 暗記アプリ起動中: http://localhost:${PORT}`);
   if (!isConfigured()) {
-    console.log('注意: DEEPSEEK_API_KEY が未設定です。.env に設定してください。');
+    console.log('注意: AI_API_KEY が未設定です。.env に設定してください。');
+  }
+  if (process.pkg) {
+    setTimeout(() => {
+      try {
+        exec(`start "" "http://localhost:${PORT}"`);
+      } catch {
+        /* ブラウザ自動起動は失敗しても無視 */
+      }
+    }, 600);
   }
 });

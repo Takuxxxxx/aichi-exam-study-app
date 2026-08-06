@@ -347,6 +347,9 @@ async function startStudy(materialIds, count, btn, mode = 'mix') {
       body: JSON.stringify({ materialIds, count, mode }),
     });
     sessionToken = data.token;
+    if (data.reused > 0) {
+      showNotice(`未回答の問題 ${data.reused} 問を再利用しました（不足分だけ新規作成）`, 'info', 6000);
+    }
     $('#study-setup').classList.add('hidden');
     $('#study-session').classList.remove('hidden');
     $('#q-result').classList.add('hidden');
@@ -414,19 +417,22 @@ $('#q-submit').addEventListener('click', async () => {
 
 function renderResult(data, answer) {
   const g = data.grading;
+  const q = window._currentQuestion;
   $('#q-submit').classList.add('hidden');
   const box = $('#q-result');
   box.classList.remove('hidden');
   const missing = g.missing_points?.length
     ? `<div class="result-feedback"><b>不足していた論点:</b><br>${g.missing_points.map(esc).join('<br>')}</div>` : '';
+  const correctLine = q?.mode === 'A'
+    ? `<div class="result-answer"><span class="lbl">答え:</span> ${esc(q.text).replace(/（　）/g, `<span class="correct-answer">${esc(data.correctAnswer)}</span>`)}</div>`
+    : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>`;
   box.innerHTML = `
     <h2>採点結果</h2>
     <div style="text-align:center">${resultBadge(g.result)}</div>
-    <div class="result-score">${g.score}点</div>
     <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
     <div class="result-feedback">${esc(g.feedback || '')}</div>
     ${missing}
-    <div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>
+    ${correctLine}
     ${data.modelAnswer ? `<div class="result-answer"><span class="lbl">模範解答:</span> ${esc(data.modelAnswer)}</div>` : ''}
     ${data.explanation ? `<div class="result-answer"><span class="lbl">解説:</span> ${esc(data.explanation)}</div>` : ''}
     <div class="modal-actions">
@@ -511,7 +517,6 @@ function endSession(stats) {
       <div class="stat-box"><div class="num" style="color:var(--ok)">${stats.correct}</div><div class="label">正解</div></div>
       <div class="stat-box"><div class="num" style="color:var(--partial)">${stats.partial}</div><div class="label">部分点</div></div>
       <div class="stat-box"><div class="num" style="color:var(--bad)">${stats.wrong}</div><div class="label">不正解</div></div>
-      <div class="stat-box"><div class="num">${stats.totalScore}</div><div class="label">合計点</div></div>
     </div>
     <div class="modal-actions">
       <button class="btn primary" id="q-back-setup">出題セットへ戻る</button>
@@ -556,12 +561,11 @@ async function loadReview() {
     if (!h.history.length) {
       ht.innerHTML = '<tr><td>まだ履歴がありません。</td></tr>';
     } else {
-      ht.innerHTML = `<tr><th>日時</th><th>問題</th><th>結果</th><th>得点</th><th>解答</th><th>フィードバック</th></tr>` +
+      ht.innerHTML = `<tr><th>日時</th><th>問題</th><th>結果</th><th>解答</th><th>フィードバック</th></tr>` +
         h.history.map((x) => `<tr>
           <td style="white-space:nowrap">${esc(x.answered_at)}</td>
           <td>${modeBadge(x.mode)} ${esc(x.mode === 'A' ? x.question_text : x.theme)}</td>
           <td>${resultBadge(x.result)}</td>
-          <td>${x.score}</td>
           <td style="max-width:260px">${esc(x.answer)}</td>
           <td style="max-width:320px">${esc(x.feedback)}</td>
         </tr>`).join('');

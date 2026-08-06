@@ -163,6 +163,7 @@ select { min-width: 140px; }
 #q-answer-area input[type="text"] { width: 100%; font-size: 16px; }
 
 .result-score { font-size: 40px; font-weight: bold; text-align: center; margin: 10px 0; }
+.correct-answer { color: var(--bad); font-weight: bold; text-decoration: underline; }
 .result-feedback { background: var(--code); border-radius: 8px; padding: 12px 14px; margin: 8px 0; white-space: pre-wrap; }
 .result-answer { margin: 6px 0; }
 .result-answer .lbl { font-weight: bold; color: var(--primary-dark); }
