@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: aichi-exam-study-app
+    runtime: node
+    repo: https://github.com/Takuxxxxx/aichi-exam-study-app
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai
+      - key: AI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: PORT
+        value: 3000
