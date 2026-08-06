@@ -301,7 +301,7 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   const nextQuestion = findNextQuestion(s);
 
   res.json({
-    grading: { result, score, feedback, missing_points: grading?.missing_points ?? [] },
+    grading: { result, score, feedback, good_points: grading?.good_points ?? [], missing_points: grading?.missing_points ?? [] },
     correctAnswer: question.mode === 'A' ? question.blank_word : question.theme,
     explanation: question.explanation || '',
     modelAnswer: question.mode === 'B' ? question.model_answer : '',
@@ -326,9 +326,13 @@ function normText(s) {
 }
 
 function fastGradeModeA(question, userAnswer) {
+  const blank = question.blank_word || '';
   const a = normText(userAnswer);
   if (!a) {
-    return { result: 'wrong', score: 0, feedback: '回答が入力されていません。', missing_points: [] };
+    return {
+      result: 'wrong', score: 0, feedback: '回答が入力されていません。',
+      good_points: [], missing_points: [`正解は「${blank}」です`],
+    };
   }
   const candidates = [question.blank_word, ...(question.acceptable ?? [])];
   const exact = candidates.some((c) => a === normText(c));
@@ -336,8 +340,18 @@ function fastGradeModeA(question, userAnswer) {
     const n = normText(c);
     return n && n.length >= 2 && a.includes(n);
   });
-  if (exact) return { result: 'correct', score: 100, feedback: '正解です！', missing_points: [] };
-  if (contained) return { result: 'partial', score: 60, feedback: '正解の語句が含まれています。表記や表現を確認しましょう。', missing_points: [] };
+  if (exact) {
+    return {
+      result: 'correct', score: 100, feedback: '正解です！',
+      good_points: ['正解の語句を正確に書けています'], missing_points: [],
+    };
+  }
+  if (contained) {
+    return {
+      result: 'partial', score: 60, feedback: '正解の語句が含まれています。表記や表現を確認しましょう。',
+      good_points: ['正解の語句が含まれています'], missing_points: [`正しい表記は「${blank}」です`],
+    };
+  }
   return null;
 }
 

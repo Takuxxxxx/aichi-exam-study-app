@@ -460,16 +460,22 @@ function renderResult(data, answer) {
   banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   const box = $('#q-result');
   box.classList.remove('hidden');
-  const missing = g.missing_points?.length
-    ? `<div class="result-feedback"><b>不足していた論点:</b><br>${g.missing_points.map(esc).join('<br>')}</div>` : '';
+  const good = (g.good_points || []).filter(Boolean);
+  const missing = (g.missing_points || []).filter(Boolean);
+  const goodHtml = good.length
+    ? `<div class="result-feedback good"><b>正しかった点:</b><br>${good.map((p) => `・${esc(p)}`).join('<br>')}</div>`
+    : (g.feedback ? `<div class="result-feedback">${esc(g.feedback)}</div>` : '');
+  const missingHtml = missing.length
+    ? `<div class="result-feedback bad"><b>不足・間違っていた点:</b><br>${missing.map((p) => `・${esc(p)}`).join('<br>')}</div>`
+    : '';
   const correctLine = q?.mode === 'A'
     ? `<div class="result-answer"><span class="lbl">答え:</span> ${esc(q.text).replace(/（　）/g, `<span class="correct-answer">${esc(data.correctAnswer)}</span>`)}</div>`
     : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>`;
   box.innerHTML = `
     <h2>採点結果</h2>
     <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
-    <div class="result-feedback">${esc(g.feedback || '')}</div>
-    ${missing}
+    ${goodHtml}
+    ${missingHtml}
     ${correctLine}
     ${data.modelAnswer ? `<div class="result-answer"><span class="lbl">模範解答:</span> ${esc(data.modelAnswer)}</div>` : ''}
     ${data.explanation ? `<div class="result-answer"><span class="lbl">解説:</span> ${esc(data.explanation)}</div>` : ''}

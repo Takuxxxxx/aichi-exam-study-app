@@ -213,6 +213,10 @@ select { min-width: 140px; }
 .result-score { font-size: 40px; font-weight: bold; text-align: center; margin: 10px 0; }
 .correct-answer { color: var(--bad); font-weight: bold; text-decoration: underline; }
 .result-feedback { background: var(--code); border-radius: 8px; padding: 12px 14px; margin: 8px 0; white-space: pre-wrap; }
+.result-feedback.good { background: #e6f6ec; border: 1px solid #a8d8b5; color: var(--ok); }
+.result-feedback.good b { color: var(--ok); }
+.result-feedback.bad { background: #fdf3e3; border: 1px solid #ecd29a; color: var(--partial); }
+.result-feedback.bad b { color: var(--partial); }
 .result-answer { margin: 6px 0; }
 .result-answer .lbl { font-weight: bold; color: var(--primary-dark); }
 
