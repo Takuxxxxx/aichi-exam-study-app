@@ -348,7 +348,7 @@ async function startStudy(materialIds, count, btn, mode = 'mix') {
     });
     sessionToken = data.token;
     if (data.reused > 0) {
-      showNotice(`未回答の問題 ${data.reused} 問を再利用しました（不足分だけ新規作成）`, 'info', 6000);
+      showNotice(`作成済みの問題 ${data.reused} 問を再利用しました（不足分だけ新規作成）`, 'info', 6000);
     }
     $('#study-setup').classList.add('hidden');
     $('#study-session').classList.remove('hidden');

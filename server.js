@@ -11,7 +11,7 @@ import { isConfigured } from './lib/ai.js';
 import { extractPdfText } from './lib/pdf.js';
 import { generateProblems } from './lib/generator.js';
 import { gradeModeA, gradeModeB } from './lib/grader.js';
-import { updateSchedule, REQUEUE_GAP } from './lib/scheduler.js';
+import { updateSchedule } from './lib/scheduler.js';
 
 function getLanIp() {
   const nets = os.networkInterfaces();
@@ -191,12 +191,16 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   const target = Math.max(1, Math.min(Number(count) || 10, 30));
   const queue = [];
 
-  const unanswered = db.listUnansweredQuestions({
-    materialIds: ids,
-    mode: mode === 'mix' ? null : mode,
-  });
-  const reusedCount = Math.min(unanswered.length, target);
-  queue.push(...unanswered.slice(0, target));
+  const modeFilter = mode === 'mix' ? null : mode;
+
+  const due = db.pickDueQuestions({ materialIds: ids, mode: modeFilter, limit: target });
+  queue.push(...due);
+  const restAfterDue = target - queue.length;
+
+  const unanswered = db.listUnansweredQuestions({ materialIds: ids, mode: modeFilter });
+  queue.push(...unanswered.slice(0, restAfterDue));
+
+  const reusedCount = queue.length;
   const remaining = target - queue.length;
 
   if (remaining > 0) {
@@ -291,11 +295,6 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   s.stats.answered += 1;
   s.stats[result] += 1;
   s.stats.totalScore += score;
-
-  if (next.requeue) {
-    const idx = Math.min(REQUEUE_GAP, s.queue.length);
-    s.queue.splice(idx, 0, withQuestion(question));
-  }
 
   const nextQuestion = findNextQuestion(s);
 

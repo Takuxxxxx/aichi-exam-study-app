@@ -18,5 +18,5 @@
 
 - AI設定: `.env` の `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL`
 - サーバー: `server.js`、問題生成: `lib/generator.js`、採点: `lib/grader.js`、DB: `lib/db.js`（SQLite）
-- 出題開始時、未回答の問題を再利用し、足りない分だけAIが新規生成する
+- 出題開始時、復習待ち・未回答の問題を再利用し、足りない分だけAIが新規生成する。同じ問題は1回の出題内では再出題しない
 - EXEは `dist/aichi-exam-app.exe`（`npm run build:exe` で生成）。`dist/public` と `dist/.env` が必須
