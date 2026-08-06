@@ -1,0 +1,581 @@
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+let materialsCache = [];
+let statusCache = { aiConfigured: false };
+let sessionToken = null;
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function showNotice(message, type = 'info', ms = 5000) {
+  const el = $('#notice');
+  el.textContent = message;
+  el.className = `notice ${type}`;
+  el.classList.remove('hidden');
+  clearTimeout(showNotice._t);
+  if (ms) showNotice._t = setTimeout(() => el.classList.add('hidden'), ms);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function modeBadge(mode) {
+  return `<span class="badge ${mode}">${mode === 'A' ? 'モードA 穴埋め' : 'モードB 用語説明'}</span>`;
+}
+
+function resultBadge(result) {
+  const map = { correct: '〇 正解', partial: '△ 部分点', wrong: '× 不正解' };
+  return `<span class="badge ${result}">${map[result] || result}</span>`;
+}
+
+function busy(btn, on) {
+  if (!btn) return;
+  if (on) {
+    btn.dataset.label = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+  }
+}
+
+/* ---------------- タブ ---------------- */
+
+function switchTab(name) {
+  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${name}`));
+  if (name === 'home') loadHome();
+  if (name === 'materials') loadMaterials();
+  if (name === 'questions') loadQuestionFilters();
+  if (name === 'study') loadStudySetup();
+  if (name === 'review') loadReview();
+}
+
+$$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+/* ---------------- ステータス ---------------- */
+
+async function loadStatus() {
+  try {
+    statusCache = await api('/api/status');
+  } catch { /* ignore */ }
+  if (!statusCache.aiConfigured) {
+    showNotice('DEEPSEEK_API_KEY が未設定です。.env に設定してサーバーを再起動してください（詳細は README 参照）。', 'error', 0);
+  }
+}
+
+/* ---------------- ホーム ---------------- */
+
+async function loadHome() {
+  const data = await api('/api/stats');
+  $('#stats').innerHTML = `
+    <div class="stat-box"><div class="num">${data.materials}</div><div class="label">資料</div></div>
+    <div class="stat-box"><div class="num">${data.questions}</div><div class="label">問題</div></div>
+    <div class="stat-box"><div class="num">${data.dueCount}</div><div class="label">復習待ち</div></div>
+    <div class="stat-box"><div class="num">${data.historyCount}</div><div class="label">回答履歴</div></div>
+  `;
+
+  const mats = await loadMaterialsCache();
+  const wrap = $('#quick-materials');
+  wrap.innerHTML = mats.length
+    ? mats.map((m) => `
+        <div class="check-row">
+          <label>
+            <input type="checkbox" class="quick-mat" value="${m.id}" ${mats.length === 1 ? 'checked' : ''}>
+            <span><b>${esc(m.title)}</b>${m.subject || m.unit ? ` — ${esc(m.subject)}${m.unit ? ' / ' + esc(m.unit) : ''}` : ''}（${m.questionCount}問）</span>
+          </label>
+        </div>`).join('')
+    : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
+}
+
+$('#quick-start').addEventListener('click', () => {
+  const ids = [...$$('.quick-mat:checked')].map((c) => Number(c.value));
+  if (!ids.length) return showNotice('資料を1つ以上選択してください。', 'error');
+  startStudy(ids, Number($('#quick-count').value), $('#quick-start'), selectedMode('quick-mode'));
+});/* ---------------- 資料 ---------------- */
+
+async function loadMaterialsCache() {
+  const data = await api('/api/materials');
+  materialsCache = data.materials;
+  return materialsCache;
+}
+
+function toggleInputType() {
+  const type = $('input[name="inputType"]:checked').value;
+  $('#file-input-wrap').classList.toggle('hidden', type !== 'file');
+  $('#text-input-wrap').classList.toggle('hidden', type !== 'text');
+}
+
+$$('input[name="inputType"]').forEach((r) => r.addEventListener('change', toggleInputType));
+
+$('#mat-register').addEventListener('click', async () => {
+  const btn = $('#mat-register');
+  const title = $('#mat-title').value.trim();
+  const subject = $('#mat-subject').value.trim();
+  const unit = $('#mat-unit').value.trim();
+  if (!title) return showNotice('タイトルを入力してください。', 'error');
+
+  const type = $('input[name="inputType"]:checked').value;
+  try {
+    busy(btn, true);
+    if (type === 'file') {
+      const file = $('#mat-file').files[0];
+      if (!file) return showNotice('ファイルを選択してください。', 'error');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('title', title);
+      fd.append('subject', subject);
+      fd.append('unit', unit);
+      await api('/api/materials/upload', { method: 'POST', body: fd });
+    } else {
+      const content = $('#mat-content').value;
+      if (!content.trim()) return showNotice('本文を入力してください。', 'error');
+      await api('/api/materials/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, subject, unit, content }),
+      });
+    }
+    showNotice('資料を登録しました。', 'success');
+    $('#mat-title').value = '';
+    $('#mat-content').value = '';
+    $('#mat-file').value = '';
+    await loadMaterials();
+  } catch (e) {
+    showNotice(e.message, 'error');
+  } finally {
+    busy(btn, false);
+  }
+});
+
+async function loadMaterials() {
+  try {
+    const mats = await loadMaterialsCache();
+    const list = $('#material-list');
+    if (!mats.length) {
+      list.innerHTML = '<div class="hint">資料がまだありません。</div>';
+      return;
+    }
+    list.innerHTML = mats.map((m) => `
+      <div class="material-item">
+        <div>
+          <div class="material-title">${esc(m.title)}</div>
+          <div class="material-meta">${esc(m.subject) || '科目なし'} / ${esc(m.unit) || '単元なし'} ・ ${m.questionCount}問 ・ ${esc(m.created_at)}</div>
+        </div>
+        <div class="item-actions">
+          <button class="btn small" data-view="${m.id}">問題一覧</button>
+          <button class="btn small danger" data-del="${m.id}">削除</button>
+        </div>
+      </div>`).join('');
+
+    list.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+      $('#q-material-filter').value = b.dataset.view;
+      switchTab('questions');
+      loadQuestions();
+    }));
+    list.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      const m = materialsCache.find((x) => x.id === Number(b.dataset.del));
+      if (!confirm(`「${m.title}」と、その問題をすべて削除します。よろしいですか？`)) return;
+      await api(`/api/materials/${m.id}`, { method: 'DELETE' });
+      showNotice('削除しました。', 'success');
+      loadMaterials();
+    }));
+  } catch (e) {
+    showNotice(e.message, 'error');
+  }
+}
+
+/* ---------------- モーダル（問題編集用） ---------------- */
+
+function openModal(html) {
+  $('#modal-body').innerHTML = html;
+  $('#modal').classList.remove('hidden');
+}
+
+function closeModal() {
+  $('#modal').classList.add('hidden');
+}
+
+/* ---------------- 問題一覧・管理 ---------------- */
+
+async function loadQuestionFilters() {
+  await loadMaterialsCache();
+  const sel = $('#q-material-filter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">すべて</option>' +
+    materialsCache.map((m) => `<option value="${m.id}">${esc(m.title)}</option>`).join('');
+  if (materialsCache.some((m) => String(m.id) === current)) sel.value = current;
+  await loadQuestions();
+}
+
+$('#q-material-filter').addEventListener('change', loadQuestions);
+$('#q-mode-filter').addEventListener('change', loadQuestions);
+$('#q-reload').addEventListener('click', loadQuestions);
+
+async function loadQuestions() {
+  const materialId = $('#q-material-filter').value;
+  const mode = $('#q-mode-filter').value;
+  const params = new URLSearchParams();
+  if (materialId) params.set('materialId', materialId);
+  if (mode) params.set('mode', mode);
+  const data = await api(`/api/questions?${params.toString()}`);
+  const list = $('#question-list');
+  if (!data.questions.length) {
+    list.innerHTML = '<div class="hint">該当する問題がありません。資料タブから問題を生成してください。</div>';
+    return;
+  }
+  list.innerHTML = data.questions.map((q) => `
+    <div class="question-item">
+      <div>
+        <div>${modeBadge(q.mode)} <b>${esc(q.mode === 'A' ? q.text : q.theme)}</b></div>
+        <div class="material-meta">
+          ${q.mode === 'A' ? `正解: ${esc(q.blank_word)}` : `テーマ: ${esc(q.theme)}`}
+          ・ 資料: ${esc(q.material_title)}
+        </div>
+      </div>
+      <div class="item-actions">
+        <button class="btn small" data-edit="${q.id}">編集</button>
+        <button class="btn small danger" data-del="${q.id}">削除</button>
+      </div>
+    </div>`).join('');
+
+  list.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => openEditModal(Number(b.dataset.edit))));
+  list.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('この問題を削除しますか？')) return;
+    await api(`/api/questions/${b.dataset.del}`, { method: 'DELETE' });
+    showNotice('削除しました。', 'success');
+    loadQuestions();
+  }));
+}
+
+async function openEditModal(id) {
+  const params = new URLSearchParams();
+  if ($('#q-material-filter').value) params.set('materialId', $('#q-material-filter').value);
+  const data = await api(`/api/questions?${params.toString()}`);
+  const q = data.questions.find((x) => x.id === id);
+  if (!q) return;
+
+  const isA = q.mode === 'A';
+  openModal(`
+    <h2>問題を編集</h2>
+    <label>問題文（空欄は（　））<textarea id="edit-text" rows="4">${esc(q.text)}</textarea></label>
+    ${isA ? `
+      <label>正解の語句<input type="text" id="edit-blank" value="${esc(q.blank_word)}"></label>
+      <label>許容する別表記（カンマ区切り）<input type="text" id="edit-acceptable" value="${esc((q.acceptable || []).join(','))}"></label>
+    ` : `
+      <label>テーマ<input type="text" id="edit-theme" value="${esc(q.theme)}"></label>
+      <label>模範解答<textarea id="edit-model" rows="5">${esc(q.model_answer)}</textarea></label>
+      <label>キーポイント（改行区切り）<textarea id="edit-points" rows="3">${esc((q.points || []).join('\n'))}</textarea></label>
+    `}
+    <label>解説<textarea id="edit-explain" rows="3">${esc(q.explanation)}</textarea></label>
+    <div class="modal-actions">
+      <button class="btn" id="edit-cancel">キャンセル</button>
+      <button class="btn primary" id="edit-save">保存</button>
+    </div>`);
+
+  $('#edit-cancel').addEventListener('click', closeModal);
+  $('#edit-save').addEventListener('click', async () => {
+    const body = { text: $('#edit-text').value, explanation: $('#edit-explain').value };
+    if (isA) {
+      body.blank_word = $('#edit-blank').value;
+      body.acceptable = $('#edit-acceptable').value.split(/[,、]/).map((s) => s.trim()).filter(Boolean);
+    } else {
+      body.theme = $('#edit-theme').value;
+      body.model_answer = $('#edit-model').value;
+      body.points = $('#edit-points').value.split('\n').map((s) => s.trim()).filter(Boolean);
+    }
+    await api(`/api/questions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    showNotice('保存しました。', 'success');
+    closeModal();
+    loadQuestions();
+  });
+}
+
+/* ---------------- 出題 ---------------- */
+
+async function loadStudySetup() {
+  await loadMaterialsCache();
+  const wrap = $('#study-materials');
+  wrap.innerHTML = materialsCache.length
+    ? materialsCache.map((m) => `
+        <div class="check-row">
+          <label>
+            <input type="checkbox" class="study-mat" value="${m.id}" ${materialsCache.length === 1 ? 'checked' : ''}>
+            <span><b>${esc(m.title)}</b>（${m.questionCount}問）</span>
+          </label>
+        </div>`).join('')
+    : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
+}
+
+$('#study-start').addEventListener('click', () => {
+  const ids = [...$$('.study-mat:checked')].map((c) => Number(c.value));
+  if (!ids.length) return showNotice('資料を1つ以上選択してください。', 'error');
+  startStudy(ids, Number($('#study-count').value), $('#study-start'), selectedMode('study-mode'));
+});
+
+function selectedMode(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : 'mix';
+}
+
+async function startStudy(materialIds, count, btn, mode = 'mix') {
+  if (!statusCache.aiConfigured) {
+    return showNotice('AI（APIキー）が未設定のため採点できません。.env を確認してください。', 'error');
+  }
+  busy(btn, true);
+  try {
+    const data = await api('/api/session/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ materialIds, count, mode }),
+    });
+    sessionToken = data.token;
+    $('#study-setup').classList.add('hidden');
+    $('#study-session').classList.remove('hidden');
+    $('#q-result').classList.add('hidden');
+    await fetchNextQuestion();
+    switchTab('study');
+  } catch (e) {
+    showNotice(e.message, 'error', 8000);
+  } finally {
+    busy(btn, false);
+  }
+}
+
+function renderQuestion(q, index, total) {
+  clearNextTimer();
+  $('#session-progress').textContent = `第 ${index} / ${total} 問`;
+  $('#q-badge').innerHTML = modeBadge(q.mode);
+  $('#q-text').innerHTML = q.mode === 'A'
+    ? esc(q.text).replace(/（　）/g, '<span style="border-bottom:2px solid var(--primary); padding:0 12px;">　　　</span>')
+    : `「${esc(q.theme)}」について、自分の言葉で説明してください。`;
+  const area = $('#q-answer-area');
+  if (q.mode === 'A') {
+    area.innerHTML = `<div class="q-answer-label">空欄に入る語句を入力してください<span class="kbd">Enter で回答・採点</span></div>
+      <input type="text" id="q-input" autocomplete="off" placeholder="答えを入力">`;
+    $('#q-input').focus();
+  } else {
+    area.innerHTML = `<div class="q-answer-label">説明を入力してください<span class="kbd">Ctrl+Enter で回答・採点</span></div>
+      <textarea id="q-input" placeholder="例: 〜という出来事で、〜した。それにより〜になった。"></textarea>`;
+    $('#q-input').focus();
+  }
+  $('#q-submit').classList.remove('hidden');
+  $('#q-result').classList.add('hidden');
+  $('#q-submit').disabled = false;
+  $('#q-submit').innerHTML = '回答して採点';
+  $('#q-waiting').classList.add('hidden');
+  window._currentQuestion = q;
+}
+
+async function fetchNextQuestion() {
+  const data = await api(`/api/session/${sessionToken}/next`);
+  if (data.done) {
+    return endSession(data.stats);
+  }
+  renderQuestion(data.question, data.index, data.total);
+}
+
+$('#q-submit').addEventListener('click', async () => {
+  const answer = $('#q-input').value;
+  const btn = $('#q-submit');
+  busy(btn, true);
+  $('#q-waiting').classList.remove('hidden');
+  try {
+    const data = await api(`/api/session/${sessionToken}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questionId: window._currentQuestion.id, answer }),
+    });
+    renderResult(data, answer);
+  } catch (e) {
+    showNotice(e.message, 'error', 8000);
+    busy(btn, false);
+  } finally {
+    $('#q-waiting').classList.add('hidden');
+  }
+});
+
+function renderResult(data, answer) {
+  const g = data.grading;
+  $('#q-submit').classList.add('hidden');
+  const box = $('#q-result');
+  box.classList.remove('hidden');
+  const missing = g.missing_points?.length
+    ? `<div class="result-feedback"><b>不足していた論点:</b><br>${g.missing_points.map(esc).join('<br>')}</div>` : '';
+  box.innerHTML = `
+    <h2>採点結果</h2>
+    <div style="text-align:center">${resultBadge(g.result)}</div>
+    <div class="result-score">${g.score}点</div>
+    <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
+    <div class="result-feedback">${esc(g.feedback || '')}</div>
+    ${missing}
+    <div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>
+    ${data.modelAnswer ? `<div class="result-answer"><span class="lbl">模範解答:</span> ${esc(data.modelAnswer)}</div>` : ''}
+    ${data.explanation ? `<div class="result-answer"><span class="lbl">解説:</span> ${esc(data.explanation)}</div>` : ''}
+    <div class="modal-actions">
+      <button class="btn primary" id="q-next">次の問題へ<span class="kbd">Enter / スペース</span></button>
+    </div>`;
+  const nextBtn = $('#q-next');
+  const advance = () => {
+    clearNextTimer();
+    nextBtn.disabled = true;
+    if (data.next) {
+      renderQuestion(data.next, data.index + 1, data.total);
+    } else {
+      endSession(data.stats);
+    }
+  };
+  nextBtn.addEventListener('click', advance);
+  nextBtn.addEventListener('mouseenter', () => {
+    clearNextTimer();
+    nextBtn.textContent = '次の問題へ';
+  });
+  nextBtn.focus();
+  if ($('#q-autonext').checked) startNextTimer(nextBtn, advance);
+}
+
+let nextTimer = null;
+const AUTO_NEXT_SECONDS = 3;
+function startNextTimer(btn, advance) {
+  clearNextTimer();
+  let n = AUTO_NEXT_SECONDS;
+  btn.textContent = `次の問題へ（${n}）`;
+  nextTimer = setInterval(() => {
+    n -= 1;
+    if (n <= 0) {
+      clearNextTimer();
+      advance();
+      return;
+    }
+    btn.textContent = `次の問題へ（${n}）`;
+  }, 1000);
+}
+function clearNextTimer() {
+  if (nextTimer) {
+    clearInterval(nextTimer);
+    nextTimer = null;
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  const inSession = !$('#study-session').classList.contains('hidden');
+  if (!inSession) return;
+  const tag = e.target.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+  if (typing && e.key === 'Enter') {
+    const mode = window._currentQuestion?.mode;
+    if (mode === 'A' && e.target.id === 'q-input') {
+      e.preventDefault();
+      $('#q-submit').click();
+      return;
+    }
+    if (mode === 'B' && e.target.id === 'q-input' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      $('#q-submit').click();
+      return;
+    }
+  }
+  if (!typing && ['Enter', ' ', 'ArrowRight', 'n', 'N'].includes(e.key)) {
+    const btn = $('#q-next');
+    if (btn && !btn.disabled && !$('#q-result').classList.contains('hidden')) {
+      e.preventDefault();
+      btn.click();
+    }
+  }
+});
+
+function endSession(stats) {
+  clearNextTimer();
+  $('#q-result').classList.remove('hidden');
+  $('#q-result').innerHTML = `
+    <h2>出題終了</h2>
+    <div class="stats" style="margin-top:8px">
+      <div class="stat-box"><div class="num">${stats.answered}</div><div class="label">解答数</div></div>
+      <div class="stat-box"><div class="num" style="color:var(--ok)">${stats.correct}</div><div class="label">正解</div></div>
+      <div class="stat-box"><div class="num" style="color:var(--partial)">${stats.partial}</div><div class="label">部分点</div></div>
+      <div class="stat-box"><div class="num" style="color:var(--bad)">${stats.wrong}</div><div class="label">不正解</div></div>
+      <div class="stat-box"><div class="num">${stats.totalScore}</div><div class="label">合計点</div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn primary" id="q-back-setup">出題セットへ戻る</button>
+    </div>`;
+  $('#q-back-setup').addEventListener('click', () => {
+    sessionToken = null;
+    $('#study-session').classList.add('hidden');
+    $('#study-setup').classList.remove('hidden');
+    loadStudySetup();
+  });
+}
+
+$('#session-quit').addEventListener('click', () => {
+  sessionToken = null;
+  $('#study-session').classList.add('hidden');
+  $('#study-setup').classList.remove('hidden');
+});
+
+/* ---------------- 復習・履歴 ---------------- */
+
+async function loadReview() {
+  try {
+    const [r, h] = await Promise.all([api('/api/review'), api('/api/history')]);
+
+    const rt = $('#review-table');
+    if (!r.review.length) {
+      rt.innerHTML = '<tr><td>まだ復習データがありません。出題して回答するとここに表示されます。</td></tr>';
+    } else {
+      rt.innerHTML = `<tr><th>問題</th><th>資料</th><th>次回出題</th><th>間隔</th><th>連続正解</th><th>累計 正/誤</th><th>直前結果</th></tr>` +
+        r.review.map((x) => `<tr>
+          <td>${modeBadge(x.mode)} ${esc(x.mode === 'A' ? x.text : x.theme)}</td>
+          <td>${esc(x.material_title)}</td>
+          <td>${esc(x.next_review_at)}</td>
+          <td>${x.interval_days}日</td>
+          <td>${x.consecutive_correct}回</td>
+          <td>${x.total_correct} / ${x.total_wrong}</td>
+          <td>${resultBadge(x.last_result)}</td>
+        </tr>`).join('');
+    }
+
+    const ht = $('#history-table');
+    if (!h.history.length) {
+      ht.innerHTML = '<tr><td>まだ履歴がありません。</td></tr>';
+    } else {
+      ht.innerHTML = `<tr><th>日時</th><th>問題</th><th>結果</th><th>得点</th><th>解答</th><th>フィードバック</th></tr>` +
+        h.history.map((x) => `<tr>
+          <td style="white-space:nowrap">${esc(x.answered_at)}</td>
+          <td>${modeBadge(x.mode)} ${esc(x.mode === 'A' ? x.question_text : x.theme)}</td>
+          <td>${resultBadge(x.result)}</td>
+          <td>${x.score}</td>
+          <td style="max-width:260px">${esc(x.answer)}</td>
+          <td style="max-width:320px">${esc(x.feedback)}</td>
+        </tr>`).join('');
+    }
+  } catch (e) {
+    showNotice(e.message, 'error');
+  }
+}
+
+/* ---------------- 初期化 ---------------- */
+
+async function init() {
+  await loadStatus();
+  await loadHome();
+}
+
+init();

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>愛知県入試対策 暗記アプリ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>愛知県公立高校入試対策 暗記アプリ</h1>
+    <nav class="tabs">
+      <button data-tab="home" class="tab active">ホーム</button>
+      <button data-tab="materials" class="tab">資料</button>
+      <button data-tab="questions" class="tab">問題管理</button>
+      <button data-tab="study" class="tab">出題</button>
+      <button data-tab="review" class="tab">復習・履歴</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="notice" class="notice hidden"></div>
+
+    <!-- ======== ホーム ======== -->
+    <section id="tab-home" class="tab-panel active">
+      <div class="stats" id="stats"></div>
+      <div class="card">
+        <h2>クイック出題</h2>
+        <p>資料を選んで、その場で問題を解き始められます。</p>
+        <div id="quick-materials"></div>
+        <label>問題数
+          <select id="quick-count">
+            <option value="5">5問</option>
+            <option value="10" selected>10問</option>
+            <option value="20">20問</option>
+            <option value="30">30問</option>
+            <option value="50">50問</option>
+          </select>
+        </label>
+        <div class="mode-choice">
+          <span class="mode-choice-label">問題タイプ</span>
+          <label><input type="radio" name="quick-mode" value="mix" checked> 両方</label>
+          <label><input type="radio" name="quick-mode" value="A"> 空欄補充</label>
+          <label><input type="radio" name="quick-mode" value="B"> 記述説明</label>
+        </div>
+        <button id="quick-start" class="btn primary">出題を始める</button>
+      </div>
+    </section>
+
+    <!-- ======== 資料 ======== -->
+    <section id="tab-materials" class="tab-panel">
+      <div class="card">
+        <h2>資料を登録</h2>
+        <div class="input-row">
+          <label>タイトル <input id="mat-title" placeholder="例: 日本史・明治維新"></label>
+          <label>科目 <input id="mat-subject" placeholder="例: 社会"></label>
+          <label>単元 <input id="mat-unit" placeholder="例: 歴史・明治時代"></label>
+        </div>
+        <div class="input-row">
+          <label class="radio-inline"><input type="radio" name="inputType" value="file" checked> ファイル（PDF/TXT/MD）</label>
+          <label class="radio-inline"><input type="radio" name="inputType" value="text"> テキスト貼り付け</label>
+        </div>
+        <div id="file-input-wrap">
+          <input type="file" id="mat-file" accept=".pdf,.txt,.md,.csv">
+        </div>
+        <div id="text-input-wrap" class="hidden">
+          <textarea id="mat-content" rows="8" placeholder="資料の本文を貼り付け"></textarea>
+        </div>
+        <button id="mat-register" class="btn primary">資料を登録</button>
+        <div class="hint">PDFは文字が埋め込まれたものに対応。スキャン画像PDFの場合はテキスト貼り付けで登録してください。</div>
+      </div>
+
+      <div class="card">
+        <h2>資料一覧</h2>
+        <div id="material-list"></div>
+      </div>
+    </section>
+
+    <!-- ======== 問題管理 ======== -->
+    <section id="tab-questions" class="tab-panel">
+      <div class="card">
+        <h2>問題一覧・編集</h2>
+        <div class="input-row">
+          <label>資料
+            <select id="q-material-filter"><option value="">すべて</option></select>
+          </label>
+          <label>形式
+            <select id="q-mode-filter">
+              <option value="">すべて</option>
+              <option value="A">モードA（穴埋め）</option>
+              <option value="B">モードB（用語説明）</option>
+            </select>
+          </label>
+          <button id="q-reload" class="btn">再読み込み</button>
+        </div>
+        <div id="question-list"></div>
+      </div>
+    </section>
+
+    <!-- ======== 出題 ======== -->
+    <section id="tab-study" class="tab-panel">
+      <div id="study-setup" class="card">
+        <h2>出題セットを作成</h2>
+        <div id="study-materials"></div>
+        <label>問題数
+          <select id="study-count">
+            <option value="5">5問</option>
+            <option value="10" selected>10問</option>
+            <option value="20">20問</option>
+            <option value="30">30問</option>
+            <option value="50">50問</option>
+          </select>
+        </label>
+        <div class="mode-choice">
+          <span class="mode-choice-label">問題タイプ</span>
+          <label><input type="radio" name="study-mode" value="mix" checked> 両方</label>
+          <label><input type="radio" name="study-mode" value="A"> 空欄補充</label>
+          <label><input type="radio" name="study-mode" value="B"> 記述説明</label>
+        </div>
+        <button id="study-start" class="btn primary">出題を開始</button>
+        <div class="hint">出題のたびにAIが指定数ぶんの新しい問題を生成します（数秒〜数十秒かかります）。生成した問題は保存され、正誤履歴・復習間隔も自動で記録されます。間違えた問題は数問進めてから再出題されます。</div>
+      </div>
+
+      <div id="study-session" class="hidden">
+        <div class="session-head">
+          <span id="session-progress"></span>
+          <button id="session-quit" class="btn">終了</button>
+        </div>
+        <div class="card question-card">
+          <div id="q-badge" class="badge"></div>
+          <div id="q-text" class="q-text"></div>
+          <div id="q-answer-area"></div>
+          <button id="q-submit" class="btn primary">回答して採点</button>
+          <div id="q-waiting" class="hint hidden">AI採点中…（数秒かかります）</div>
+          <label class="auto-next"><input type="checkbox" id="q-autonext"> 自動で次へ進む（3秒）</label>
+        </div>
+        <div id="q-result" class="card hidden"></div>
+      </div>
+    </section>
+
+    <!-- ======== 復習・履歴 ======== -->
+    <section id="tab-review" class="tab-panel">
+      <div class="card">
+        <h2>復習状況</h2>
+        <div class="table-wrap"><table id="review-table"></table></div>
+      </div>
+      <div class="card">
+        <h2>正誤履歴</h2>
+        <div class="table-wrap"><table id="history-table"></table></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

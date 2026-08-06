@@ -1,0 +1,334 @@
+import 'dotenv/config';
+import express from 'express';
+import multer from 'multer';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import * as db from './lib/db.js';
+import { isConfigured } from './lib/ai.js';
+import { extractPdfText } from './lib/pdf.js';
+import { generateProblems } from './lib/generator.js';
+import { gradeModeA, gradeModeB } from './lib/grader.js';
+import { updateSchedule, REQUEUE_GAP } from './lib/scheduler.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+function safe(fn) {
+  return (req, res) => {
+    try {
+      fn(req, res);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'サーバーエラー' });
+    }
+  };
+}
+
+const asyncSafe = (fn) => (req, res) =>
+  Promise.resolve(fn(req, res)).catch((e) => {
+    console.error(e);
+    res.status(500).json({ error: e.message || 'サーバーエラー' });
+  });
+
+function withQuestion(q) {
+  if (!q) return q;
+  const out = { ...q };
+  out.acceptable = safeParse(out.acceptable);
+  out.points = safeParse(out.points);
+  delete out.material_id;
+  return out;
+}
+
+function safeParse(s) {
+  if (Array.isArray(s)) return s;
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+app.get('/api/status', (req, res) => {
+  res.json({ aiConfigured: isConfigured() });
+});
+
+/* ---------------- 資料 ---------------- */
+
+app.post('/api/materials/upload', upload.single('file'), asyncSafe(async (req, res) => {
+  const { title, subject = '', unit = '' } = req.body;
+  if (!req.file) return res.status(400).json({ error: 'ファイルが選択されていません。' });
+  if (!title) return res.status(400).json({ error: 'タイトルを入力してください。' });
+
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  let content;
+  if (ext === '.pdf') {
+    content = await extractPdfText(req.file.buffer);
+  } else if (['.txt', '.md', '.csv', '.text'].includes(ext)) {
+    content = req.file.buffer.toString('utf8');
+  } else {
+    return res.status(400).json({ error: '対応形式は PDF / TXT / MD です。' });
+  }
+
+  const material = db.createMaterial({ title, subject, unit, sourceType: ext, content });
+  res.json({ material });
+}));
+
+app.post('/api/materials/text', asyncSafe(async (req, res) => {
+  const { title, subject = '', unit = '', content } = req.body;
+  if (!title) return res.status(400).json({ error: 'タイトルを入力してください。' });
+  if (!content || !content.trim()) return res.status(400).json({ error: '本文を入力してください。' });
+  const material = db.createMaterial({ title, subject, unit, sourceType: 'text', content });
+  res.json({ material });
+}));
+
+app.get('/api/materials', (req, res) => {
+  const materials = db.listMaterials().map((m) => ({
+    ...m,
+    questionCount: db.countQuestionsByMaterial(m.id),
+  }));
+  res.json({ materials });
+});
+
+app.get('/api/materials/:id', (req, res) => {
+  const m = db.getMaterial(Number(req.params.id));
+  if (!m) return res.status(404).json({ error: '資料が見つかりません。' });
+  res.json({ material: m });
+});
+
+app.delete('/api/materials/:id', (req, res) => {
+  db.deleteMaterial(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+app.post('/api/materials/:id/generate', asyncSafe(async (req, res) => {
+  const material = db.getMaterial(Number(req.params.id));
+  if (!material) return res.status(404).json({ error: '資料が見つかりません。' });
+
+  const modeA = Math.min(Math.max(Number(req.body.modeA) || 0, 0), 30);
+  const modeB = Math.min(Math.max(Number(req.body.modeB) || 0, 0), 30);
+  if (modeA + modeB <= 0) return res.status(400).json({ error: '生成数を指定してください。' });
+
+  const { questions, modeA: genA, modeB: genB } = await generateProblems({
+    content: material.content,
+    materialInfo: { title: material.title, subject: material.subject, unit: material.unit },
+    modeACount: modeA,
+    modeBCount: modeB,
+  });
+
+  db.insertQuestions(material.id, questions);
+  res.json({ inserted: questions.length, modeA: genA, modeB: genB, questions });
+}));
+
+/* ---------------- 問題 ---------------- */
+
+app.get('/api/questions', (req, res) => {
+  const materialId = req.query.materialId ? Number(req.query.materialId) : null;
+  const mode = req.query.mode || null;
+  const rows = db.listQuestions({ materialId, mode }).map(withQuestion);
+  res.json({ questions: rows });
+});
+
+app.put('/api/questions/:id', (req, res) => {
+  const { text, blank_word, acceptable, theme, model_answer, points, explanation } = req.body;
+  const updated = db.updateQuestion(Number(req.params.id), {
+    text, blank_word, acceptable, theme, model_answer, points, explanation,
+  });
+  if (!updated) return res.status(404).json({ error: '問題が見つかりません。' });
+  res.json({ question: withQuestion(updated) });
+});
+
+app.delete('/api/questions/:id', (req, res) => {
+  db.deleteQuestion(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+/* ---------------- 出題セッション ---------------- */
+
+const sessions = new Map();
+
+app.post('/api/session/start', asyncSafe(async (req, res) => {
+  const { materialIds = [], count = 10, mode = 'mix' } = req.body;
+  const ids = Array.isArray(materialIds) ? materialIds.filter(Boolean).map(Number) : [];
+  if (!ids.length) {
+    return res.status(400).json({ error: '資料を1つ以上選択してください。' });
+  }
+  const materials = ids.map((id) => db.getMaterial(id)).filter(Boolean);
+  if (!materials.length) {
+    return res.status(400).json({ error: '資料が見つかりません。' });
+  }
+
+  const target = Math.max(1, Math.min(Number(count) || 10, 30));
+  const perMaterial = Math.max(1, Math.ceil(target / materials.length));
+  const queue = [];
+
+  for (const m of materials) {
+    const wantA = mode !== 'B';
+    const wantB = mode !== 'A';
+    const isMix = mode === 'mix';
+    const modeA = wantA ? Math.max(1, Math.round(perMaterial * (isMix ? 0.7 : 1))) : 0;
+    const modeB = wantB ? Math.max(1, Math.round(perMaterial * (isMix ? 0.3 : 1))) : 0;
+    const { questions } = await generateProblems({
+      content: m.content,
+      materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
+      modeACount: Math.min(modeA, 25),
+      modeBCount: Math.min(modeB, 10),
+    });
+    if (questions.length) {
+      const savedIds = db.insertQuestions(m.id, questions);
+      for (const id of savedIds) {
+        const q = db.getQuestion(id);
+        if (q) queue.push(q);
+      }
+    }
+  }
+
+  if (queue.length === 0) {
+    return res.status(400).json({ error: '問題を生成できませんでした。AI APIキーとレート制限を確認してください。' });
+  }
+
+  const token = crypto.randomBytes(16).toString('hex');
+  sessions.set(token, {
+    queue,
+    stats: { answered: 0, correct: 0, partial: 0, wrong: 0, totalScore: 0 },
+    history: [],
+  });
+  res.json({ token, total: queue.length });
+}));
+
+function findNextQuestion(session) {
+  if (!session.queue.length) return null;
+  const q = session.queue.shift();
+  return q;
+}
+
+app.get('/api/session/:token', (req, res) => {
+  const s = sessions.get(req.params.token);
+  if (!s) return res.status(404).json({ error: 'セッションが見つかりません（期限切れの可能性があります）。' });
+  res.json({ total: s.queue.length + s.stats.answered, stats: s.stats });
+});
+
+app.get('/api/session/:token/next', (req, res) => {
+  const s = sessions.get(req.params.token);
+  if (!s) return res.status(404).json({ error: 'セッションが見つかりません。' });
+  const q = findNextQuestion(s);
+  if (!q) return res.json({ done: true, stats: s.stats });
+  res.json({ question: withQuestion(q), index: s.stats.answered + 1, total: s.queue.length + s.stats.answered + 1, done: false });
+});
+
+app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
+  const s = sessions.get(req.params.token);
+  if (!s) return res.status(404).json({ error: 'セッションが見つかりません。' });
+
+  const { questionId, answer } = req.body;
+  const question = db.getQuestion(Number(questionId));
+  if (!question) return res.status(404).json({ error: '問題が見つかりません。' });
+
+  let grading;
+  if (question.mode === 'A') {
+    grading = fastGradeModeA(question, answer ?? '') || (await gradeModeA({ question, userAnswer: answer ?? '' }));
+  } else {
+    grading = await gradeModeB({ question, userAnswer: answer ?? '' });
+  }
+
+  const result = normalizeResult(grading?.result);
+  const score = clampScore(grading?.score);
+  const feedback = grading?.feedback || '';
+
+  const sched = db.getSchedule(question.id);
+  const next = updateSchedule(sched, result);
+  db.upsertSchedule(question.id, next);
+  db.addHistory({ questionId: question.id, result, score, answer: answer ?? '', feedback });
+
+  s.stats.answered += 1;
+  s.stats[result] += 1;
+  s.stats.totalScore += score;
+
+  if (next.requeue) {
+    const idx = Math.min(REQUEUE_GAP, s.queue.length);
+    s.queue.splice(idx, 0, withQuestion(question));
+  }
+
+  const nextQuestion = findNextQuestion(s);
+
+  res.json({
+    grading: { result, score, feedback, missing_points: grading?.missing_points ?? [] },
+    correctAnswer: question.mode === 'A' ? question.blank_word : question.theme,
+    explanation: question.explanation || '',
+    modelAnswer: question.mode === 'B' ? question.model_answer : '',
+    stats: s.stats,
+    next: nextQuestion ? withQuestion(nextQuestion) : null,
+    done: !nextQuestion,
+    index: s.stats.answered,
+    total: s.stats.answered + (nextQuestion ? s.queue.length + 1 : 0),
+  });
+}));
+
+function normalizeResult(r) {
+  if (r === 'correct' || r === 'partial' || r === 'wrong') return r;
+  return 'wrong';
+}
+
+function normText(s) {
+  return String(s ?? '')
+    .toLowerCase()
+    .replace(/[\s\u3000]/g, '')
+    .replace(/[。、．.,！!？?・'"“”]/g, '');
+}
+
+function fastGradeModeA(question, userAnswer) {
+  const a = normText(userAnswer);
+  if (!a) {
+    return { result: 'wrong', score: 0, feedback: '回答が入力されていません。', missing_points: [] };
+  }
+  const candidates = [question.blank_word, ...(question.acceptable ?? [])];
+  const exact = candidates.some((c) => a === normText(c));
+  const contained = candidates.some((c) => {
+    const n = normText(c);
+    return n && n.length >= 2 && a.includes(n);
+  });
+  if (exact) return { result: 'correct', score: 100, feedback: '正解です！', missing_points: [] };
+  if (contained) return { result: 'partial', score: 60, feedback: '正解の語句が含まれています。表記や表現を確認しましょう。', missing_points: [] };
+  return null;
+}
+
+function clampScore(n) {
+  const v = Number(n);
+  if (Number.isNaN(v)) return 0;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+/* ---------------- 履歴・復習 ---------------- */
+
+app.get('/api/history', (req, res) => {
+  res.json({ history: db.listHistory() });
+});
+
+app.get('/api/review', (req, res) => {
+  res.json({ review: db.listReviewStatus() });
+});
+
+app.get('/api/stats', (req, res) => {
+  const questions = db.countQuestions();
+  const materials = db.listMaterials().length;
+  const dueCount = db.countDue();
+  const historyCount = db.countHistory();
+  res.json({ questions, materials, dueCount, historyCount, aiConfigured: isConfigured() });
+});
+
+app.listen(PORT, () => {
+  console.log(`愛知県入試対策 暗記アプリ起動中: http://localhost:${PORT}`);
+  if (!isConfigured()) {
+    console.log('注意: DEEPSEEK_API_KEY が未設定です。.env に設定してください。');
+  }
+});
