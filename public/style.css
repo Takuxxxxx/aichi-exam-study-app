@@ -182,6 +182,17 @@ select { min-width: 140px; }
 }
 
 .q-text { font-size: 18px; margin: 12px 0; }
+.q-points {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: var(--code);
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.q-points b { color: var(--primary-dark); }
+.q-points ul { margin: 6px 0 0; padding-left: 18px; }
+.q-points li { margin: 2px 0; }
 .q-answer-label { font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
 #q-answer-area textarea { width: 100%; min-height: 80px; }
 #q-answer-area input[type="text"] { width: 100%; font-size: 16px; }

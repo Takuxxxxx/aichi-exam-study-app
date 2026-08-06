@@ -370,9 +370,12 @@ function renderQuestion(q, index, total) {
   banner.textContent = '';
   $('#session-progress').textContent = `第 ${index} / ${total} 問`;
   $('#q-badge').innerHTML = modeBadge(q.mode);
-  $('#q-text').innerHTML = q.mode === 'A'
+  $('#q-text').innerHTML = (q.mode === 'A'
     ? esc(q.text).replace(/（　）/g, '<span style="border-bottom:2px solid var(--primary); padding:0 12px;">　　　</span>')
-    : `「${esc(q.theme)}」について、自分の言葉で説明してください。`;
+    : `「${esc(q.theme)}」について、自分の言葉で説明してください。`)
+    + (q.mode === 'B' && Array.isArray(q.points) && q.points.length
+      ? `<div class="q-points"><b>説明の観点（これを含めると高評価）:</b><ul>${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`
+      : '');
   const area = $('#q-answer-area');
   if (q.mode === 'A') {
     area.innerHTML = `<div class="q-answer-label">空欄に入る語句を入力してください<span class="kbd">Enter で回答・採点</span></div>

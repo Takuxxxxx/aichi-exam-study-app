@@ -275,6 +275,8 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   const { questionId, answer } = req.body;
   const question = db.getQuestion(Number(questionId));
   if (!question) return res.status(404).json({ error: '問題が見つかりません。' });
+  question.points = safeParse(question.points);
+  question.acceptable = safeParse(question.acceptable);
 
   let grading;
   if (question.mode === 'A') {
