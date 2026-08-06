@@ -10,7 +10,7 @@ import * as db from './lib/db.js';
 import { isConfigured } from './lib/ai.js';
 import { extractPdfText } from './lib/pdf.js';
 import { generateProblems } from './lib/generator.js';
-import { gradeModeA, gradeModeB } from './lib/grader.js';
+import { gradeModeA, gradeModeB, gradeModeC } from './lib/grader.js';
 import { updateSchedule } from './lib/scheduler.js';
 
 function getLanIp() {
@@ -207,6 +207,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
     const existing = db.listQuestions({ materialIds: ids });
     const avoidA = [...new Set(existing.filter((q) => q.mode === 'A').map((q) => q.blank_word).filter(Boolean))];
     const avoidB = [...new Set(existing.filter((q) => q.mode === 'B').map((q) => q.theme).filter(Boolean))];
+    const avoidC = [...new Set(existing.filter((q) => q.mode === 'C').map((q) => q.theme).filter(Boolean))];
 
     const genCounts = new Array(materials.length).fill(0);
     for (let i = 0; i < remaining; i++) genCounts[i % materials.length]++;
@@ -217,19 +218,24 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
       const m = materials[mi];
       let modeA = 0;
       let modeB = 0;
+      let modeC = 0;
       if (mode === 'A') modeA = n;
       else if (mode === 'B') modeB = n;
+      else if (mode === 'C') modeC = n;
       else {
-        modeA = Math.max(1, Math.round(n * 0.7));
-        modeB = n - modeA;
+        modeA = Math.max(1, Math.round(n * 0.5));
+        modeB = Math.max(0, Math.round(n * 0.25));
+        modeC = n - modeA - modeB;
       }
       const { questions } = await generateProblems({
         content: m.content,
         materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
         modeACount: Math.min(modeA, 25),
         modeBCount: Math.min(modeB, 10),
+        modeCCount: Math.min(modeC, 10),
         avoidA,
         avoidB,
+        avoidC,
       });
       if (questions.length) {
         const savedIds = db.insertQuestions(m.id, questions);
@@ -287,6 +293,8 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   let grading;
   if (question.mode === 'A') {
     grading = fastGradeModeA(question, answer ?? '') || (await gradeModeA({ question, userAnswer: answer ?? '' }));
+  } else if (question.mode === 'C') {
+    grading = await gradeModeC({ question, userAnswer: answer ?? '' });
   } else {
     grading = await gradeModeB({ question, userAnswer: answer ?? '' });
   }
@@ -310,7 +318,7 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
     grading: { result, score, feedback, good_points: grading?.good_points ?? [], missing_points: grading?.missing_points ?? [] },
     correctAnswer: question.mode === 'A' ? question.blank_word : question.theme,
     explanation: question.explanation || '',
-    modelAnswer: question.mode === 'B' ? question.model_answer : '',
+    modelAnswer: (question.mode === 'B' || question.mode === 'C') ? question.model_answer : '',
     stats: s.stats,
     next: nextQuestion ? withQuestion(nextQuestion) : null,
     done: !nextQuestion,

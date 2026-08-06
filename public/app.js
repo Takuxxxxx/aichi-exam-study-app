@@ -32,7 +32,8 @@ function esc(s) {
 }
 
 function modeBadge(mode) {
-  return `<span class="badge ${mode}">${mode === 'A' ? 'モードA 穴埋め' : 'モードB 用語説明'}</span>`;
+  const map = { A: 'モードA 穴埋め', B: 'モードB 用語説明', C: 'モードC 入試レベル' };
+  return `<span class="badge ${mode}">${map[mode] || mode}</span>`;
 }
 
 function resultBadge(result) {
@@ -372,8 +373,10 @@ function renderQuestion(q, index, total) {
   $('#q-badge').innerHTML = modeBadge(q.mode);
   $('#q-text').innerHTML = (q.mode === 'A'
     ? esc(q.text).replace(/（　）/g, '<span style="border-bottom:2px solid var(--primary); padding:0 12px;">　　　</span>')
-    : `「${esc(q.theme)}」について、自分の言葉で説明してください。`)
-    + (q.mode === 'B' && Array.isArray(q.points) && q.points.length
+    : q.mode === 'C'
+      ? esc(q.text)
+      : `「${esc(q.theme)}」について、自分の言葉で説明してください。`)
+    + (q.mode !== 'A' && Array.isArray(q.points) && q.points.length
       ? `<div class="q-points"><b>説明の観点（これを含めると高評価）:</b><ul>${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`
       : '');
   const area = $('#q-answer-area');
@@ -402,6 +405,12 @@ function renderQuestion(q, index, total) {
       hintWrap.classList.add('hidden');
       hintWrap.innerHTML = '';
     }
+  } else if (q.mode === 'C') {
+    hintWrap.classList.add('hidden');
+    hintWrap.innerHTML = '';
+    area.innerHTML = `<div class="q-answer-label">観点を踏まえて説明（論述）を入力してください<span class="kbd">Ctrl+Enter で回答・採点</span></div>
+      <textarea id="q-input" style="min-height:140px;" placeholder="背景・理由・内容・結果・影響などの観点を意識して、入試レベルの論述を入力してください。"></textarea>`;
+    $('#q-input').focus();
   } else {
     hintWrap.classList.add('hidden');
     hintWrap.innerHTML = '';
@@ -536,7 +545,7 @@ document.addEventListener('keydown', (e) => {
       $('#q-submit').click();
       return;
     }
-    if (mode === 'B' && e.target.id === 'q-input' && (e.ctrlKey || e.metaKey)) {
+    if ((mode === 'B' || mode === 'C') && e.target.id === 'q-input' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       $('#q-submit').click();
       return;
