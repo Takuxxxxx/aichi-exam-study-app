@@ -364,6 +364,10 @@ async function startStudy(materialIds, count, btn, mode = 'mix') {
 
 function renderQuestion(q, index, total) {
   clearNextTimer();
+  $('#q-question-card').classList.remove('is-correct', 'is-partial', 'is-wrong');
+  const banner = $('#q-result-banner');
+  banner.classList.add('hidden');
+  banner.textContent = '';
   $('#session-progress').textContent = `第 ${index} / ${total} 問`;
   $('#q-badge').innerHTML = modeBadge(q.mode);
   $('#q-text').innerHTML = q.mode === 'A'
@@ -419,6 +423,15 @@ function renderResult(data, answer) {
   const g = data.grading;
   const q = window._currentQuestion;
   $('#q-submit').classList.add('hidden');
+  const card = $('#q-question-card');
+  card.classList.remove('is-correct', 'is-partial', 'is-wrong');
+  card.classList.add('is-' + g.result);
+  const banner = $('#q-result-banner');
+  const bannerText = { correct: '〇 正解!', partial: '△ 部分点', wrong: '× 不正解' }[g.result] || g.result;
+  banner.textContent = bannerText;
+  banner.className = 'result-banner result-banner-' + g.result;
+  banner.classList.remove('hidden');
+  banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   const box = $('#q-result');
   box.classList.remove('hidden');
   const missing = g.missing_points?.length
@@ -428,7 +441,6 @@ function renderResult(data, answer) {
     : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>`;
   box.innerHTML = `
     <h2>採点結果</h2>
-    <div style="text-align:center">${resultBadge(g.result)}</div>
     <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
     <div class="result-feedback">${esc(g.feedback || '')}</div>
     ${missing}
