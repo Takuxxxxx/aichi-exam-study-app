@@ -543,7 +543,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (!typing && ['Enter', ' ', 'ArrowRight', 'n', 'N'].includes(e.key)) {
-    const btn = $('#q-next');
+    const btn = $('#q-next') || $('#q-back-setup');
     if (btn && !btn.disabled && !$('#q-result').classList.contains('hidden')) {
       e.preventDefault();
       btn.click();
@@ -571,6 +571,7 @@ function endSession(stats) {
     $('#study-setup').classList.remove('hidden');
     loadStudySetup();
   });
+  $('#q-back-setup').focus();
 }
 
 $('#session-quit').addEventListener('click', () => {
