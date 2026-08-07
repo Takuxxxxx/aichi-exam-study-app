@@ -41,6 +41,14 @@ function resultBadge(result) {
   return `<span class="badge ${result}">${map[result] || result}</span>`;
 }
 
+let _lastStats = null;
+function accuracyLabel(stats) {
+  if (!stats || !stats.answered) return '';
+  const a = stats.answered || 0;
+  const pts = ((stats.correct || 0) * 100 + (stats.partial || 0) * 50) / a;
+  return ` ｜ 正答率 ${Math.round(pts)}%（〇${stats.correct || 0}/△${stats.partial || 0}/×${stats.wrong || 0}）`;
+}
+
 function busy(btn, on) {
   if (!btn) return;
   if (on) {
@@ -443,7 +451,7 @@ function renderQuestion(q, index, total) {
   const banner = $('#q-result-banner');
   banner.classList.add('hidden');
   banner.textContent = '';
-  $('#session-progress').textContent = `第 ${index} / ${total} 問`;
+  $('#session-progress').textContent = `第 ${index} / ${total} 問` + accuracyLabel(_lastStats);
   $('#q-badge').innerHTML = modeBadge(q.mode)
     + (q.level === 'application' ? '<span class="badge app">応用レベル</span>' : '');
   $('#q-text').innerHTML = (q.mode === 'A'
@@ -545,6 +553,7 @@ $('#q-submit').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ questionId: q.id, answer }),
     });
+    _lastStats = data.stats;
     renderResult(data, answer);
   } catch (e) {
     showNotice(e.message, 'error', 8000);
@@ -692,6 +701,7 @@ function endSession(stats) {
       <div class="stat-box"><div class="num" style="color:var(--ok)">${stats.correct}</div><div class="label">正解</div></div>
       <div class="stat-box"><div class="num" style="color:var(--partial)">${stats.partial}</div><div class="label">部分点</div></div>
       <div class="stat-box"><div class="num" style="color:var(--bad)">${stats.wrong}</div><div class="label">不正解</div></div>
+      <div class="stat-box"><div class="num" style="color:var(--primary)">${accuracyLabel(stats) ? Math.round(((stats.correct || 0) * 100 + (stats.partial || 0) * 50) / (stats.answered || 1)) + '%' : ''}</div><div class="label">正答率</div></div>
     </div>
     <div class="modal-actions">
       <button class="btn primary" id="q-back-setup">出題セットへ戻る</button>

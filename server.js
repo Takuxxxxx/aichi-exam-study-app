@@ -338,7 +338,7 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   } else if (question.mode === 'D') {
     grading = gradeModeD(question, answer ?? '');
   } else {
-    grading = await gradeModeB({ question, userAnswer: answer ?? '' });
+    grading = fastGradeModeB(question, answer ?? '') || (await gradeModeB({ question, userAnswer: answer ?? '' }));
   }
 
   const result = normalizeResult(grading?.result);
@@ -406,6 +406,24 @@ function fastGradeModeA(question, userAnswer) {
     return {
       result: 'partial', score: 60, feedback: '正解の語句が含まれています。表記や表現を確認しましょう。',
       good_points: ['正解の語句が含まれています'], missing_points: [`正しい表記は「${blank}」です`],
+    };
+  }
+  return null;
+}
+
+function fastGradeModeB(question, userAnswer) {
+  const a = normText(userAnswer);
+  if (!a) {
+    return {
+      result: 'wrong', score: 0, feedback: '回答が入力されていません。',
+      good_points: [], missing_points: [`正解例: ${question.model_answer || question.theme}`],
+    };
+  }
+  const model = normText(question.model_answer);
+  if (model && model.length >= 4 && a.includes(model)) {
+    return {
+      result: 'correct', score: 100, feedback: '正解です（模範解答の要点を含んでいます）。',
+      good_points: ['模範解答の要点を含んでいます'], missing_points: [],
     };
   }
   return null;
