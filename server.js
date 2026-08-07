@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import * as db from './lib/db.js';
 import { isConfigured } from './lib/ai.js';
 import { extractPdfText } from './lib/pdf.js';
-import { generateProblems } from './lib/generator.js';
+import { generateProblems, generateApplicationQuestions } from './lib/generator.js';
 import { gradeModeA, gradeModeB, gradeModeC, gradeModeD } from './lib/grader.js';
 import { updateSchedule } from './lib/scheduler.js';
 
@@ -235,25 +235,49 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
         modeB = Math.max(0, Math.round(n * 0.25));
         modeC = n - modeA - modeB;
       }
-      const { questions } = await generateProblems({
-        content: m.content,
-        materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
-        modeACount: Math.min(modeA, 25),
-        modeBCount: Math.min(modeB, 10),
-        modeCCount: Math.min(modeC, 10),
-        modeDCount: Math.min(modeD, 25),
-        direction: dir,
-        avoidA,
-        avoidB,
-        avoidC,
-        avoidD,
-      });
-      if (questions.length) {
-        const savedIds = db.insertQuestions(m.id, questions);
-        for (const id of savedIds) {
-          const q = db.getQuestion(id);
-          if (q) queue.push(q);
+      try {
+        const { questions } = await generateProblems({
+          content: m.content,
+          materialInfo: { title: m.title, subject: m.subject, unit: m.unit },
+          modeACount: Math.min(modeA, 25),
+          modeBCount: Math.min(modeB, 10),
+          modeCCount: Math.min(modeC, 10),
+          modeDCount: Math.min(modeD, 25),
+          direction: dir,
+          avoidA,
+          avoidB,
+          avoidC,
+          avoidD,
+        });
+        if (questions.length) {
+          const savedIds = db.insertQuestions(m.id, questions);
+          for (const id of savedIds) {
+            const q = db.getQuestion(id);
+            if (q) queue.push(q);
+          }
         }
+      } catch (e) {
+        console.error('資料からの問題生成に失敗。応用レベルで補充します:', e.message);
+      }
+    }
+  }
+
+  // 指定数に届かない場合は、応用レベル（思考問題）で必ず補充する
+  let shortfall = target - queue.length;
+  if (shortfall > 0) {
+    const existingThemes = db.listQuestions({ materialIds: ids }).map((q) => q.theme).filter(Boolean);
+    const appAvoid = [...new Set(existingThemes)].slice(0, 60);
+    const appQuestions = await generateApplicationQuestions({
+      subject: materials[0]?.subject || '',
+      unit: materials[0]?.unit || '',
+      count: Math.max(shortfall, 0),
+      avoid: appAvoid,
+    });
+    if (appQuestions.length) {
+      const savedIds = db.insertQuestions(materials[0].id, appQuestions);
+      for (const id of savedIds) {
+        const q = db.getQuestion(id);
+        if (q) queue.push(q);
       }
     }
   }
@@ -261,6 +285,8 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   if (queue.length === 0) {
     return res.status(400).json({ error: '問題を生成できませんでした。AI APIキーとレート制限を確認してください。' });
   }
+
+  queue.length = Math.min(queue.length, target);
 
   const token = crypto.randomBytes(16).toString('hex');
   sessions.set(token, {

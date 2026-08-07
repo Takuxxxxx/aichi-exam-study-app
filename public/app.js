@@ -444,7 +444,8 @@ function renderQuestion(q, index, total) {
   banner.classList.add('hidden');
   banner.textContent = '';
   $('#session-progress').textContent = `第 ${index} / ${total} 問`;
-  $('#q-badge').innerHTML = modeBadge(q.mode);
+  $('#q-badge').innerHTML = modeBadge(q.mode)
+    + (q.level === 'application' ? '<span class="badge app">応用レベル</span>' : '');
   $('#q-text').innerHTML = (q.mode === 'A'
     ? esc(q.text).replace(/（　）/g, '<span style="border-bottom:2px solid var(--primary); padding:0 12px;">　　　</span>')
     : q.mode === 'C' || q.mode === 'D'

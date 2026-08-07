@@ -144,6 +144,7 @@ select { min-width: 140px; }
 .badge.A { background: #e7f0fb; color: var(--primary-dark); border-color: #b8d4ef; }
 .badge.B { background: #f3ecf7; color: #6b21a8; border-color: #d8c3e8; }
 .badge.D { background: #e6f7f4; color: #0f766e; border-color: #a8dcd3; }
+.badge.app { background: #fff4e0; color: #b45309; border-color: #f2d8a8; }
 .badge.correct { background: #e6f6ec; color: var(--ok); border-color: #a8d8b5; }
 .badge.partial { background: #fdf3e3; color: var(--partial); border-color: #ecd29a; }
 .badge.wrong { background: #fdeaea; color: var(--bad); border-color: #f2b5b5; }
