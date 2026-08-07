@@ -47,6 +47,13 @@
           <label><input type="radio" name="quick-mode" value="A"> 空欄補充</label>
           <label><input type="radio" name="quick-mode" value="B"> 記述説明</label>
           <label><input type="radio" name="quick-mode" value="C"> 入試レベル</label>
+          <label><input type="radio" name="quick-mode" value="D"> 英単語</label>
+        </div>
+        <div class="mode-choice" id="quick-direction-wrap">
+          <span class="mode-choice-label">英単語の向き</span>
+          <label><input type="radio" name="quick-direction" value="both" checked> 両方向</label>
+          <label><input type="radio" name="quick-direction" value="ja_to_en"> 日本語→英語</label>
+          <label><input type="radio" name="quick-direction" value="en_to_ja"> 英語→日本語</label>
         </div>
         <button id="quick-start" class="btn primary">出題を始める</button>
       </div>
@@ -122,6 +129,13 @@
           <label><input type="radio" name="study-mode" value="A"> 空欄補充</label>
           <label><input type="radio" name="study-mode" value="B"> 記述説明</label>
           <label><input type="radio" name="study-mode" value="C"> 入試レベル</label>
+          <label><input type="radio" name="study-mode" value="D"> 英単語</label>
+        </div>
+        <div class="mode-choice" id="study-direction-wrap">
+          <span class="mode-choice-label">英単語の向き</span>
+          <label><input type="radio" name="study-direction" value="both" checked> 両方向</label>
+          <label><input type="radio" name="study-direction" value="ja_to_en"> 日本語→英語</label>
+          <label><input type="radio" name="study-direction" value="en_to_ja"> 英語→日本語</label>
         </div>
         <button id="study-start" class="btn primary">出題を開始</button>
         <div class="hint">復習待ち・未回答の問題があればそれを優先して出題し、足りない分だけAIが新規生成します（数秒〜数十秒かかります）。同じ問題は1回の出題内では再出題されません。間違えた問題は間隔を空けて復習として再出題されます。</div>

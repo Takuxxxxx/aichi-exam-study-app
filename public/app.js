@@ -32,7 +32,7 @@ function esc(s) {
 }
 
 function modeBadge(mode) {
-  const map = { A: 'モードA 穴埋め', B: 'モードB 用語説明', C: 'モードC 入試レベル' };
+  const map = { A: 'モードA 穴埋め', B: 'モードB 用語説明', C: 'モードC 入試レベル', D: 'モードD 英単語' };
   return `<span class="badge ${mode}">${map[mode] || mode}</span>`;
 }
 
@@ -100,6 +100,7 @@ async function loadHome() {
           </label>
         </div>`).join('')
     : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
+  restoreSetupSettings();
 }
 
 $('#quick-start').addEventListener('click', () => {
@@ -311,6 +312,61 @@ async function openEditModal(id) {
 
 /* ---------------- 出題 ---------------- */
 
+function saveSetupSettings() {
+  const read = (matSel, countId, modeName, dirName) => ({
+    materials: [...$$(matSel)].filter((c) => c.checked).map((c) => Number(c.value)),
+    count: Number($(countId).value),
+    mode: selectedMode(modeName),
+    direction: selectedDirection(dirName),
+  });
+  try {
+    localStorage.setItem('aichi_setup', JSON.stringify({
+      study: read('.study-mat', '#study-count', 'study-mode', 'study-direction'),
+      quick: read('.quick-mat', '#quick-count', 'quick-mode', 'quick-direction'),
+    }));
+  } catch (e) {
+    // 保存できなくても動作は継続
+  }
+}
+
+function restoreSetupSettings() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem('aichi_setup') || 'null');
+  } catch (e) {
+    saved = null;
+  }
+  if (!saved) return;
+  const apply = (matSel, ids) => {
+    if (!Array.isArray(ids)) return;
+    $$(matSel).forEach((c) => { c.checked = ids.includes(Number(c.value)); });
+  };
+  const applyMode = (name, mode) => {
+    if (!mode) return;
+    const r = document.querySelector(`input[name="${name}"][value="${mode}"]`);
+    if (r) r.checked = true;
+  };
+  const applyDirection = (name, direction) => {
+    if (!direction) return;
+    const r = document.querySelector(`input[name="${name}"][value="${direction}"]`);
+    if (r) r.checked = true;
+  };
+  if (saved.study) {
+    apply('.study-mat', saved.study.materials);
+    if (saved.study.count) $('#study-count').value = String(saved.study.count);
+    applyMode('study-mode', saved.study.mode);
+    applyDirection('study-direction', saved.study.direction);
+    syncDirectionVisibility('study');
+  }
+  if (saved.quick) {
+    apply('.quick-mat', saved.quick.materials);
+    if (saved.quick.count) $('#quick-count').value = String(saved.quick.count);
+    applyMode('quick-mode', saved.quick.mode);
+    applyDirection('quick-direction', saved.quick.direction);
+    syncDirectionVisibility('quick');
+  }
+}
+
 async function loadStudySetup() {
   await loadMaterialsCache();
   const wrap = $('#study-materials');
@@ -323,6 +379,7 @@ async function loadStudySetup() {
           </label>
         </div>`).join('')
     : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
+  restoreSetupSettings();
 }
 
 $('#study-start').addEventListener('click', () => {
@@ -336,16 +393,33 @@ function selectedMode(name) {
   return el ? el.value : 'mix';
 }
 
+function selectedDirection(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : 'both';
+}
+
+function syncDirectionVisibility(prefix) {
+  const mode = selectedMode(prefix + '-mode');
+  const wrap = $('#' + prefix + '-direction-wrap');
+  if (wrap) wrap.classList.toggle('hidden', mode !== 'D');
+}
+
+$$('input[name="quick-mode"], input[name="study-mode"]').forEach((r) =>
+  r.addEventListener('change', () => syncDirectionVisibility(r.name.replace('-mode', '')))
+);
+
 async function startStudy(materialIds, count, btn, mode = 'mix') {
   if (!statusCache.aiConfigured) {
     return showNotice('AI（APIキー）が未設定のため採点できません。.env を確認してください。', 'error');
   }
+  saveSetupSettings();
   busy(btn, true);
   try {
+    const direction = mode === 'D' ? selectedDirection(btn.id === 'quick-start' ? 'quick-direction' : 'study-direction') : 'ja_to_en';
     const data = await api('/api/session/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ materialIds, count, mode }),
+      body: JSON.stringify({ materialIds, count, mode, direction }),
     });
     sessionToken = data.token;
     if (data.reused > 0) {
@@ -373,11 +447,14 @@ function renderQuestion(q, index, total) {
   $('#q-badge').innerHTML = modeBadge(q.mode);
   $('#q-text').innerHTML = (q.mode === 'A'
     ? esc(q.text).replace(/（　）/g, '<span style="border-bottom:2px solid var(--primary); padding:0 12px;">　　　</span>')
-    : q.mode === 'C'
+    : q.mode === 'C' || q.mode === 'D'
       ? esc(q.text)
       : `「${esc(q.theme)}」について、自分の言葉で説明してください。`)
     + (q.mode === 'B' && Array.isArray(q.points) && q.points.length
       ? `<div class="q-points"><b>説明の観点（これを含めると高評価）:</b><ul>${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`
+      : '')
+    + (q.mode === 'D' && q.explanation
+      ? `<div class="q-points"><b>例文:</b> ${esc(q.explanation)}</div>`
       : '');
   const area = $('#q-answer-area');
   const hintWrap = $('#q-hint-wrap');
@@ -416,6 +493,12 @@ function renderQuestion(q, index, total) {
       <div class="choice-list">${opts || '<p style="color:var(--muted)">選択肢がありません。</p>'}</div>`;
     const firstRadio = area.querySelector('input[type="radio"]');
     if (firstRadio) firstRadio.focus();
+  } else if (q.mode === 'D') {
+    hintWrap.classList.add('hidden');
+    hintWrap.innerHTML = '';
+    area.innerHTML = `<div class="q-answer-label">答えを入力してください<span class="kbd">Enter で回答・採点</span></div>
+      <input type="text" id="q-input" autocomplete="off" placeholder="答えを入力" autofocus inputmode="${q.direction === 'en_to_ja' ? 'text' : 'text'}">`;
+    $('#q-input').focus();
   } else {
     hintWrap.classList.add('hidden');
     hintWrap.innerHTML = '';
@@ -507,7 +590,8 @@ function renderResult(data, answer) {
     ${data.explanation ? `<div class="result-answer"><span class="lbl">解説:</span> ${esc(data.explanation)}</div>` : ''}
     <div class="modal-actions">
       <button class="btn primary" id="q-next">次の問題へ<span class="kbd">Enter / スペース</span></button>
-    </div>`;
+    </div>
+    <div class="tap-next-hint">画面のどこをタップしても次へ進みます</div>`;
   if (q?.mode === 'C') {
     const ci = Number(q.correct_index);
     const items = document.querySelectorAll('.choice-item');
@@ -534,6 +618,11 @@ function renderResult(data, answer) {
     nextBtn.textContent = '次の問題へ';
   });
   nextBtn.focus();
+  box.addEventListener('click', (e) => {
+    if (nextBtn.disabled) return;
+    if (e.target.closest('#q-next')) return;
+    advance();
+  });
   if ($('#q-autonext').checked) startNextTimer(nextBtn, advance);
 }
 
@@ -605,12 +694,17 @@ function endSession(stats) {
     </div>
     <div class="modal-actions">
       <button class="btn primary" id="q-back-setup">出題セットへ戻る</button>
-    </div>`;
+    </div>
+    <div class="tap-next-hint">画面のどこをタップしても出題セットへ戻ります</div>`;
   $('#q-back-setup').addEventListener('click', () => {
     sessionToken = null;
     $('#study-session').classList.add('hidden');
     $('#study-setup').classList.remove('hidden');
     loadStudySetup();
+  });
+  $('#q-result').addEventListener('click', (e) => {
+    if (e.target.closest('#q-back-setup')) return;
+    $('#q-back-setup').click();
   });
   $('#q-back-setup').focus();
 }

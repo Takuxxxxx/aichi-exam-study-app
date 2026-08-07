@@ -143,6 +143,7 @@ select { min-width: 140px; }
 }
 .badge.A { background: #e7f0fb; color: var(--primary-dark); border-color: #b8d4ef; }
 .badge.B { background: #f3ecf7; color: #6b21a8; border-color: #d8c3e8; }
+.badge.D { background: #e6f7f4; color: #0f766e; border-color: #a8dcd3; }
 .badge.correct { background: #e6f6ec; color: var(--ok); border-color: #a8d8b5; }
 .badge.partial { background: #fdf3e3; color: var(--partial); border-color: #ecd29a; }
 .badge.wrong { background: #fdeaea; color: var(--bad); border-color: #f2b5b5; }
@@ -241,6 +242,7 @@ select { min-width: 140px; }
 .result-feedback.bad b { color: var(--partial); }
 .result-answer { margin: 6px 0; }
 .result-answer .lbl { font-weight: bold; color: var(--primary-dark); }
+.tap-next-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
