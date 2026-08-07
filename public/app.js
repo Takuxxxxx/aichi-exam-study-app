@@ -376,7 +376,7 @@ function renderQuestion(q, index, total) {
     : q.mode === 'C'
       ? esc(q.text)
       : `「${esc(q.theme)}」について、自分の言葉で説明してください。`)
-    + (q.mode !== 'A' && Array.isArray(q.points) && q.points.length
+    + (q.mode === 'B' && Array.isArray(q.points) && q.points.length
       ? `<div class="q-points"><b>説明の観点（これを含めると高評価）:</b><ul>${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`
       : '');
   const area = $('#q-answer-area');
@@ -408,9 +408,14 @@ function renderQuestion(q, index, total) {
   } else if (q.mode === 'C') {
     hintWrap.classList.add('hidden');
     hintWrap.innerHTML = '';
-    area.innerHTML = `<div class="q-answer-label">観点を踏まえて説明（論述）を入力してください<span class="kbd">Ctrl+Enter で回答・採点</span></div>
-      <textarea id="q-input" style="min-height:140px;" placeholder="背景・理由・内容・結果・影響などの観点を意識して、入試レベルの論述を入力してください。"></textarea>`;
-    $('#q-input').focus();
+    const letters = ['ア', 'イ', 'ウ', 'エ', 'オ'];
+    const opts = (q.options || []).map((o, i) =>
+      `<label class="choice-item"><input type="radio" name="q-choice" value="${esc(o)}"> <span class="choice-letter">${letters[i] || i + 1}.</span> <span class="choice-text">${esc(o)}</span></label>`
+    ).join('');
+    area.innerHTML = `<div class="q-answer-label">正しい答えを1つ選んでください<span class="kbd">Enter で回答・採点</span></div>
+      <div class="choice-list">${opts || '<p style="color:var(--muted)">選択肢がありません。</p>'}</div>`;
+    const firstRadio = area.querySelector('input[type="radio"]');
+    if (firstRadio) firstRadio.focus();
   } else {
     hintWrap.classList.add('hidden');
     hintWrap.innerHTML = '';
@@ -435,7 +440,18 @@ async function fetchNextQuestion() {
 }
 
 $('#q-submit').addEventListener('click', async () => {
-  const answer = $('#q-input').value;
+  const q = window._currentQuestion;
+  let answer;
+  if (q?.mode === 'C') {
+    const sel = document.querySelector('input[name="q-choice"]:checked');
+    if (!sel) {
+      showNotice('選択肢を1つ選んでください', 'error');
+      return;
+    }
+    answer = sel.value;
+  } else {
+    answer = $('#q-input').value;
+  }
   const btn = $('#q-submit');
   busy(btn, true);
   $('#q-waiting').classList.remove('hidden');
@@ -443,7 +459,7 @@ $('#q-submit').addEventListener('click', async () => {
     const data = await api(`/api/session/${sessionToken}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ questionId: window._currentQuestion.id, answer }),
+      body: JSON.stringify({ questionId: q.id, answer }),
     });
     renderResult(data, answer);
   } catch (e) {
@@ -479,18 +495,29 @@ function renderResult(data, answer) {
     : '';
   const correctLine = q?.mode === 'A'
     ? `<div class="result-answer"><span class="lbl">答え:</span> ${esc(q.text).replace(/（　）/g, `<span class="correct-answer">${esc(data.correctAnswer)}</span>`)}</div>`
-    : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>`;
+    : q?.mode === 'C'
+      ? `<div class="result-answer"><span class="lbl">正解:</span> <span class="correct-answer">${esc(data.correctAnswer)}</span></div>`
+      : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>`;
   box.innerHTML = `
     <h2>採点結果</h2>
     <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
     ${goodHtml}
     ${missingHtml}
     ${correctLine}
-    ${data.modelAnswer ? `<div class="result-answer"><span class="lbl">模範解答:</span> ${esc(data.modelAnswer)}</div>` : ''}
     ${data.explanation ? `<div class="result-answer"><span class="lbl">解説:</span> ${esc(data.explanation)}</div>` : ''}
     <div class="modal-actions">
       <button class="btn primary" id="q-next">次の問題へ<span class="kbd">Enter / スペース</span></button>
     </div>`;
+  if (q?.mode === 'C') {
+    const ci = Number(q.correct_index);
+    const items = document.querySelectorAll('.choice-item');
+    items.forEach((el, i) => {
+      const input = el.querySelector('input');
+      input.disabled = true;
+      if (i === ci) el.classList.add('is-correct-choice');
+      else if (input.checked) el.classList.add('is-wrong-choice');
+    });
+  }
   const nextBtn = $('#q-next');
   const advance = () => {
     clearNextTimer();
@@ -545,7 +572,12 @@ document.addEventListener('keydown', (e) => {
       $('#q-submit').click();
       return;
     }
-    if ((mode === 'B' || mode === 'C') && e.target.id === 'q-input' && (e.ctrlKey || e.metaKey)) {
+    if (mode === 'B' && e.target.id === 'q-input' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      $('#q-submit').click();
+      return;
+    }
+    if (mode === 'C' && e.target.type === 'radio') {
       e.preventDefault();
       $('#q-submit').click();
       return;

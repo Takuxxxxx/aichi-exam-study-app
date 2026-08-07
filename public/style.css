@@ -210,6 +210,28 @@ select { min-width: 140px; }
 #q-answer-area textarea { width: 100%; min-height: 80px; }
 #q-answer-area input[type="text"] { width: 100%; font-size: 16px; }
 
+.choice-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.choice-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--card);
+  transition: border-color 0.15s, background 0.15s;
+}
+.choice-item:hover { border-color: var(--primary); }
+.choice-item input[type="radio"] { margin-top: 4px; flex-shrink: 0; }
+.choice-letter { font-weight: bold; color: var(--primary-dark); flex-shrink: 0; }
+.choice-text { line-height: 1.55; }
+.choice-item.is-correct-choice { border-color: var(--ok); background: #e6f6ec; }
+.choice-item.is-correct-choice .choice-letter,
+.choice-item.is-correct-choice .choice-text { color: var(--ok); font-weight: bold; }
+.choice-item.is-wrong-choice { border-color: var(--bad); background: #fdecec; }
+.choice-item.is-wrong-choice .choice-letter,
+.choice-item.is-wrong-choice .choice-text { color: var(--bad); }
+.choice-item:has(input[type="radio"]:disabled) { cursor: default; }
+
 .result-score { font-size: 40px; font-weight: bold; text-align: center; margin: 10px 0; }
 .correct-answer { color: var(--bad); font-weight: bold; text-decoration: underline; }
 .result-feedback { background: var(--code); border-radius: 8px; padding: 12px 14px; margin: 8px 0; white-space: pre-wrap; }

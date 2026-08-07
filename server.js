@@ -65,6 +65,9 @@ function withQuestion(q) {
   const out = { ...q };
   out.acceptable = safeParse(out.acceptable);
   out.points = safeParse(out.points);
+  out.options = safeParse(out.options);
+  const ci = Number(out.correct_index);
+  out.correct_index = Number.isInteger(ci) && ci >= 0 ? ci : -1;
   delete out.material_id;
   return out;
 }
@@ -289,6 +292,9 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   if (!question) return res.status(404).json({ error: '問題が見つかりません。' });
   question.points = safeParse(question.points);
   question.acceptable = safeParse(question.acceptable);
+  question.options = safeParse(question.options);
+  const qci = Number(question.correct_index);
+  question.correct_index = Number.isInteger(qci) && qci >= 0 ? qci : -1;
 
   let grading;
   if (question.mode === 'A') {
@@ -316,9 +322,9 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
 
   res.json({
     grading: { result, score, feedback, good_points: grading?.good_points ?? [], missing_points: grading?.missing_points ?? [] },
-    correctAnswer: question.mode === 'A' ? question.blank_word : question.theme,
+    correctAnswer: question.mode === 'C' ? (question.options[question.correct_index] ?? question.blank_word ?? '') : (question.mode === 'A' ? question.blank_word : question.theme),
     explanation: question.explanation || '',
-    modelAnswer: (question.mode === 'B' || question.mode === 'C') ? question.model_answer : '',
+    modelAnswer: question.mode === 'B' ? question.model_answer : '',
     stats: s.stats,
     next: nextQuestion ? withQuestion(nextQuestion) : null,
     done: !nextQuestion,
