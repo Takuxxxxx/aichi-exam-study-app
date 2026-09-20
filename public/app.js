@@ -109,7 +109,47 @@ async function loadHome() {
         </div>`).join('')
     : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
   restoreSetupSettings();
+  loadSyncInfo();
 }
+
+/* ---------------- 同期 ---------------- */
+
+function fmtTime(ms) {
+  if (!ms) return '―';
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+async function loadSyncInfo() {
+  const el = $('#sync-status');
+  if (!el) return;
+  try {
+    const info = await api('/api/sync/info');
+    el.textContent = info.peerConfigured
+      ? `同期先: ${info.peerUrl} ｜ この端末のデータ更新: ${fmtTime(info.local.mtimeMs)}`
+      : '同期未設定（.env の SYNC_PEER_URL / SYNC_SECRET を設定してください）';
+  } catch {
+    el.textContent = '同期状態を取得できませんでした。';
+  }
+}
+
+async function doSync(kind, btn) {
+  busy(btn, true);
+  try {
+    const data = await api(kind === 'pull' ? '/api/sync/pull-now' : '/api/sync/push-now', { method: 'POST' });
+    const msg = { pulled: '相手のデータを取得しました。', pushed: '送信しました。', uptodate: 'すでに最新です。', disabled: '同期未設定です。' };
+    showNotice(msg[data.result] || data.result, 'success');
+    await loadSyncInfo();
+    await loadHome();
+  } catch (e) {
+    showNotice(e.message, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
+
+$('#sync-pull')?.addEventListener('click', (e) => doSync('pull', e.target));
+$('#sync-push')?.addEventListener('click', (e) => doSync('push', e.target));
 
 $('#quick-start').addEventListener('click', () => {
   const ids = [...$$('.quick-mat:checked')].map((c) => Number(c.value));

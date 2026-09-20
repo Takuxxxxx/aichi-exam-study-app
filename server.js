@@ -39,6 +39,26 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
+// 同期pushはバイナリ受信のため、JSONパーサより前にrawで受ける
+app.post('/api/sync/push', express.raw({ type: '*/*', limit: '200mb' }), (req, res) => {
+  try {
+    if (!process.env.SYNC_SECRET) return res.status(403).json({ error: '同期が無効です（SYNC_SECRET未設定）。' });
+    const secret = req.query.secret || req.headers['x-sync-secret'];
+    if (secret !== process.env.SYNC_SECRET) return res.status(403).json({ error: '認証失敗。' });
+    const incoming = Number(req.query.mtime) || 0;
+    const local = db.getDbState();
+    if (incoming > local.mtimeMs && req.body && req.body.length) {
+      db.replaceDbFile(Buffer.from(req.body), incoming);
+      sessions.clear();
+      return res.json({ applied: true });
+    }
+    res.json({ applied: false });
+  } catch (e) {
+    console.error('sync push失敗:', e.message);
+    res.status(500).json({ error: e.message || 'サーバーエラー' });
+  }
+});
+
 app.use(express.json({ limit: '10mb' }));
 if (process.pkg) app.use(express.static(path.join(path.dirname(process.execPath), 'public')));
 app.use(express.static(path.join(currentDir, 'public')));
@@ -176,6 +196,45 @@ app.delete('/api/questions/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------------- DB同期API ---------------- */
+
+app.get('/api/sync/state', (req, res) => {
+  if (!checkSyncSecret(req)) return res.status(403).json({ error: '認証失敗。' });
+  res.json(db.getDbState());
+});
+
+app.get('/api/sync/pull', (req, res) => {
+  if (!checkSyncSecret(req)) return res.status(403).json({ error: '認証失敗。' });
+  const buf = db.exportDbBuffer();
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Length', buf.length);
+  res.send(buf);
+});
+
+// ブラウザ用（秘密鍵はサーバー側の.envから使用。ブラウザに鍵を出さない）
+app.get('/api/sync/info', (req, res) => {
+  const peer = syncPeer();
+  res.json({ peerConfigured: !!peer, peerUrl: peer ? peer.url : '', local: db.getDbState() });
+});
+
+app.post('/api/sync/pull-now', asyncSafe(async (req, res) => {
+  try {
+    const result = await pullFromPeer();
+    res.json({ result, local: db.getDbState() });
+  } catch (e) {
+    res.status(500).json({ error: `取得に失敗: ${e.message}` });
+  }
+}));
+
+app.post('/api/sync/push-now', asyncSafe(async (req, res) => {
+  try {
+    const result = await pushToPeer();
+    res.json({ result });
+  } catch (e) {
+    res.status(500).json({ error: `送信に失敗: ${e.message}` });
+  }
+}));
+
 /* ---------------- 出題セッション ---------------- */
 
 const sessions = new Map();
@@ -204,7 +263,67 @@ function persistSession(token) {
   }
 }
 
+/* ---------------- DB同期（PC⇔クラウド・新勝ち） ---------------- */
+// 自動同期は SYNC_PEER_URL が設定された側だけが行う（片方向開始でループ防止）
+
+function syncPeer() {
+  const url = (process.env.SYNC_PEER_URL || '').replace(/\/+$/, '');
+  const secret = process.env.SYNC_SECRET || '';
+  return url && secret ? { url, secret } : null;
+}
+
+function checkSyncSecret(req) {
+  if (!process.env.SYNC_SECRET) return false;
+  const s = req.query.secret || req.headers['x-sync-secret'];
+  return s === process.env.SYNC_SECRET;
+}
+
+async function pullFromPeer() {
+  const peer = syncPeer();
+  if (!peer) return 'disabled';
+  const q = `secret=${encodeURIComponent(peer.secret)}`;
+  const stateRes = await fetch(`${peer.url}/api/sync/state?${q}`, { signal: AbortSignal.timeout(15000) });
+  if (!stateRes.ok) throw new Error(`相手の状態取得に失敗: ${stateRes.status}`);
+  const remote = await stateRes.json();
+  const local = db.getDbState();
+  if (remote.mtimeMs > local.mtimeMs) {
+    const pullRes = await fetch(`${peer.url}/api/sync/pull?${q}`, { signal: AbortSignal.timeout(60000) });
+    if (!pullRes.ok) throw new Error(`取得に失敗: ${pullRes.status}`);
+    const buf = Buffer.from(await pullRes.arrayBuffer());
+    if (db.replaceDbFile(buf, remote.mtimeMs)) {
+      sessions.clear();
+      return 'pulled';
+    }
+  }
+  return 'uptodate';
+}
+
+async function pushToPeer() {
+  const peer = syncPeer();
+  if (!peer) return 'disabled';
+  const local = db.getDbState();
+  const res = await fetch(
+    `${peer.url}/api/sync/push?secret=${encodeURIComponent(peer.secret)}&mtime=${local.mtimeMs}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'x-sync-secret': peer.secret },
+      body: db.exportDbBuffer(),
+      signal: AbortSignal.timeout(60000),
+      duplex: 'half',
+    }
+  );
+  if (!res.ok) throw new Error(`送信に失敗: ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  return data.applied ? 'pushed' : 'uptodate';
+}
+
 app.post('/api/session/start', asyncSafe(async (req, res) => {
+  // 出題前に相手の新しいデータを自動取得（失敗してもローカルで続行）
+  try {
+    await pullFromPeer();
+  } catch (e) {
+    console.error('自動同期（取得）をスキップ:', e.message);
+  }
   const { materialIds = [], count = 10, mode = 'mix', direction = 'ja_to_en' } = req.body;
   const dir = ['ja_to_en', 'en_to_ja', 'both'].includes(direction) ? direction : 'ja_to_en';
   const ids = Array.isArray(materialIds) ? materialIds.filter(Boolean).map(Number) : [];
@@ -322,6 +441,8 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   });
   persistSession(token);
   res.json({ token, total: queue.length, reused: reusedCount });
+  // 新規生成分を相手へ送信（応答後に裏で実行、失敗しても無視）
+  pushToPeer().catch((e) => console.error('自動同期（送信）をスキップ:', e.message));
 }));
 
 function findNextQuestion(session) {
@@ -388,6 +509,8 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   const nextQuestion = findNextQuestion(s);
   persistSession(req.params.token);
   if (!nextQuestion) db.deleteSession(req.params.token);
+  // 回答結果を相手へ送信（応答後に裏で実行、失敗しても無視）
+  pushToPeer().catch((e) => console.error('自動同期（送信）をスキップ:', e.message));
 
   res.json({
     grading: { result, score, feedback, good_points: grading?.good_points ?? [], missing_points: grading?.missing_points ?? [] },
