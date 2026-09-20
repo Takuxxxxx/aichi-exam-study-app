@@ -2,8 +2,21 @@
   "name": "愛知県入試対策 暗記アプリ",
   "short_name": "暗記アプリ",
   "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#f4f6f8",
   "theme_color": "#2b6cb0",
-  "lang": "ja"
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }
