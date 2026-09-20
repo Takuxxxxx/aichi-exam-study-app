@@ -180,6 +180,30 @@ app.delete('/api/questions/:id', (req, res) => {
 
 const sessions = new Map();
 
+// セッション取得（メモリになければDBから復元。再起動後も継続できる）
+function loadSession(token) {
+  let s = sessions.get(token);
+  if (!s) {
+    const saved = db.getSession(token);
+    if (saved) {
+      s = saved;
+      sessions.set(token, s);
+    }
+  }
+  return s || null;
+}
+
+function persistSession(token) {
+  const s = sessions.get(token);
+  if (s) {
+    try {
+      db.saveSession(token, s);
+    } catch (e) {
+      console.error('セッション保存失敗:', e.message);
+    }
+  }
+}
+
 app.post('/api/session/start', asyncSafe(async (req, res) => {
   const { materialIds = [], count = 10, mode = 'mix', direction = 'ja_to_en' } = req.body;
   const dir = ['ja_to_en', 'en_to_ja', 'both'].includes(direction) ? direction : 'ja_to_en';
@@ -210,10 +234,12 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
 
   if (remaining > 0) {
     const existing = db.listQuestions({ materialIds: ids });
-    const avoidA = [...new Set(existing.filter((q) => q.mode === 'A').map((q) => q.blank_word).filter(Boolean))];
-    const avoidB = [...new Set(existing.filter((q) => q.mode === 'B').map((q) => q.theme).filter(Boolean))];
-    const avoidC = [...new Set(existing.filter((q) => q.mode === 'C').map((q) => q.theme).filter(Boolean))];
-    const avoidD = [...new Set(existing.filter((q) => q.mode === 'D').map((q) => q.theme).filter(Boolean))];
+    // avoidリストは直近60件に絞る（プロンプト肥大化防止。listQuestionsは新しい順なので先頭が直近）
+    const AVOID_LIMIT = 60;
+    const avoidA = [...new Set(existing.filter((q) => q.mode === 'A').map((q) => q.blank_word).filter(Boolean))].slice(0, AVOID_LIMIT);
+    const avoidB = [...new Set(existing.filter((q) => q.mode === 'B').map((q) => q.theme).filter(Boolean))].slice(0, AVOID_LIMIT);
+    const avoidC = [...new Set(existing.filter((q) => q.mode === 'C').map((q) => q.theme).filter(Boolean))].slice(0, AVOID_LIMIT);
+    const avoidD = [...new Set(existing.filter((q) => q.mode === 'D').map((q) => q.theme).filter(Boolean))].slice(0, AVOID_LIMIT);
 
     const genCounts = new Array(materials.length).fill(0);
     for (let i = 0; i < remaining; i++) genCounts[i % materials.length]++;
@@ -294,6 +320,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
     stats: { answered: 0, correct: 0, partial: 0, wrong: 0, totalScore: 0 },
     history: [],
   });
+  persistSession(token);
   res.json({ token, total: queue.length, reused: reusedCount });
 }));
 
@@ -304,21 +331,25 @@ function findNextQuestion(session) {
 }
 
 app.get('/api/session/:token', (req, res) => {
-  const s = sessions.get(req.params.token);
+  const s = loadSession(req.params.token);
   if (!s) return res.status(404).json({ error: 'セッションが見つかりません（期限切れの可能性があります）。' });
   res.json({ total: s.queue.length + s.stats.answered, stats: s.stats });
 });
 
 app.get('/api/session/:token/next', (req, res) => {
-  const s = sessions.get(req.params.token);
+  const s = loadSession(req.params.token);
   if (!s) return res.status(404).json({ error: 'セッションが見つかりません。' });
   const q = findNextQuestion(s);
-  if (!q) return res.json({ done: true, stats: s.stats });
+  persistSession(req.params.token);
+  if (!q) {
+    db.deleteSession(req.params.token);
+    return res.json({ done: true, stats: s.stats });
+  }
   res.json({ question: withQuestion(q), index: s.stats.answered + 1, total: s.queue.length + s.stats.answered + 1, done: false });
 });
 
 app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
-  const s = sessions.get(req.params.token);
+  const s = loadSession(req.params.token);
   if (!s) return res.status(404).json({ error: 'セッションが見つかりません。' });
 
   const { questionId, answer } = req.body;
@@ -355,6 +386,8 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   s.stats.totalScore += score;
 
   const nextQuestion = findNextQuestion(s);
+  persistSession(req.params.token);
+  if (!nextQuestion) db.deleteSession(req.params.token);
 
   res.json({
     grading: { result, score, feedback, good_points: grading?.good_points ?? [], missing_points: grading?.missing_points ?? [] },
@@ -411,6 +444,15 @@ function fastGradeModeA(question, userAnswer) {
   return null;
 }
 
+// 模範解答から内容語（漢字・カタカナ・英数字の2文字以上の連続）を抽出
+function extractKeywords(text, theme) {
+  const t = normText(text) + normText(theme);
+  const words = t.match(/[一-鿐々〆ヵヶァ-ヶーa-z0-9]{2,}/g) || [];
+  const uniq = [...new Set(words)];
+  // より長い語に含まれる短い語は重複カウント防止のため除外
+  return uniq.filter((w) => !uniq.some((o) => o !== w && o.includes(w)));
+}
+
 function fastGradeModeB(question, userAnswer) {
   const a = normText(userAnswer);
   if (!a) {
@@ -425,6 +467,24 @@ function fastGradeModeB(question, userAnswer) {
       result: 'correct', score: 100, feedback: '正解です（模範解答の要点を含んでいます）。',
       good_points: ['模範解答の要点を含んでいます'], missing_points: [],
     };
+  }
+  // キーワード含有率で判定（AIを呼ばずに済ませる）
+  const keywords = extractKeywords(question.model_answer, question.theme);
+  if (keywords.length >= 3) {
+    const hit = keywords.filter((k) => a.includes(k));
+    const ratio = hit.length / keywords.length;
+    if (ratio >= 0.7) {
+      return {
+        result: 'correct', score: 90, feedback: `正解です（要点 ${hit.length}/${keywords.length} を含んでいます）。`,
+        good_points: [`要点 ${hit.length}/${keywords.length} を含んでいます`], missing_points: [],
+      };
+    }
+    if (ratio >= 0.35) {
+      return {
+        result: 'partial', score: 50, feedback: `要点が一部含まれています（${hit.length}/${keywords.length}）。足りない点を補いましょう。`,
+        good_points: [`要点 ${hit.length}/${keywords.length} を含んでいます`], missing_points: ['模範解答と見比べて不足分を補いましょう'],
+      };
+    }
   }
   return null;
 }
