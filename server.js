@@ -11,7 +11,7 @@ import { isConfigured } from './lib/ai.js';
 import { extractPdfText } from './lib/pdf.js';
 import { generateProblems, generateApplicationQuestions } from './lib/generator.js';
 import { gradeModeA, gradeModeB, gradeModeC, gradeModeD } from './lib/grader.js';
-import { updateSchedule } from './lib/scheduler.js';
+import { updateSchedule, REQUEUE_GAP } from './lib/scheduler.js';
 
 function getLanIp() {
   const nets = os.networkInterfaces();
@@ -408,22 +408,27 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   }
 
   // 指定数に届かない場合は、応用レベル（思考問題）で必ず補充する
+  // （AI失敗時は再利用分を守るため、補充だけ諦めて続行する）
   let shortfall = target - queue.length;
   if (shortfall > 0) {
-    const existingThemes = db.listQuestions({ materialIds: ids }).map((q) => q.theme).filter(Boolean);
-    const appAvoid = [...new Set(existingThemes)].slice(0, 60);
-    const appQuestions = await generateApplicationQuestions({
-      subject: materials[0]?.subject || '',
-      unit: materials[0]?.unit || '',
-      count: Math.max(shortfall, 0),
-      avoid: appAvoid,
-    });
-    if (appQuestions.length) {
-      const savedIds = db.insertQuestions(materials[0].id, appQuestions);
-      for (const id of savedIds) {
-        const q = db.getQuestion(id);
-        if (q) queue.push(q);
+    try {
+      const existingThemes = db.listQuestions({ materialIds: ids }).map((q) => q.theme).filter(Boolean);
+      const appAvoid = [...new Set(existingThemes)].slice(0, 60);
+      const appQuestions = await generateApplicationQuestions({
+        subject: materials[0]?.subject || '',
+        unit: materials[0]?.unit || '',
+        count: Math.max(shortfall, 0),
+        avoid: appAvoid,
+      });
+      if (appQuestions.length) {
+        const savedIds = db.insertQuestions(materials[0].id, appQuestions);
+        for (const id of savedIds) {
+          const q = db.getQuestion(id);
+          if (q) queue.push(q);
+        }
       }
+    } catch (e) {
+      console.error('応用レベルでの補充に失敗。再利用分だけで続行します:', e.message);
     }
   }
 
@@ -432,6 +437,12 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   }
 
   queue.length = Math.min(queue.length, target);
+
+  // 同じ分野の連続出題を避けるためシャッフルする（交互学習効果）
+  for (let i = queue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [queue[i], queue[j]] = [queue[j], queue[i]];
+  }
 
   const token = crypto.randomBytes(16).toString('hex');
   sessions.set(token, {
@@ -498,7 +509,7 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   const feedback = grading?.feedback || '';
 
   const sched = db.getSchedule(question.id);
-  const next = updateSchedule(sched, result);
+  const next = updateSchedule(sched, result, score);
   db.upsertSchedule(question.id, next);
   db.addHistory({ questionId: question.id, result, score, answer: answer ?? '', feedback });
 
@@ -506,6 +517,10 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
   s.stats[result] += 1;
   s.stats.totalScore += score;
 
+  // 間違い・部分点は数問後に同じ出題内で再出題する（Anki方式）
+  if (next.requeue) {
+    s.queue.splice(Math.min(REQUEUE_GAP, s.queue.length), 0, question);
+  }
   const nextQuestion = findNextQuestion(s);
   persistSession(req.params.token);
   if (!nextQuestion) db.deleteSession(req.params.token);
@@ -633,7 +648,19 @@ app.get('/api/stats', (req, res) => {
   const materials = db.listMaterials().length;
   const dueCount = db.countDue();
   const historyCount = db.countHistory();
-  res.json({ questions, materials, dueCount, historyCount, aiConfigured: isConfigured() });
+  const byMode = {};
+  for (const r of db.statsByMode()) {
+    byMode[r.mode] = byMode[r.mode] || { correct: 0, partial: 0, wrong: 0 };
+    if (byMode[r.mode][r.result] !== undefined) byMode[r.mode][r.result] = r.n;
+  }
+  res.json({
+    questions, materials, dueCount, historyCount, aiConfigured: isConfigured(),
+    byMode, activity: db.activityLast7(), leechCount: db.countLeech(),
+  });
+});
+
+app.get('/api/leech', (req, res) => {
+  res.json({ leech: db.listLeech() });
 });
 
 app.listen(PORT, '0.0.0.0', () => {

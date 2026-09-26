@@ -96,6 +96,7 @@ async function loadHome() {
     <div class="stat-box"><div class="num">${data.dueCount}</div><div class="label">復習待ち</div></div>
     <div class="stat-box"><div class="num">${data.historyCount}</div><div class="label">回答履歴</div></div>
   `;
+  renderHomeStats(data);
 
   const mats = await loadMaterialsCache();
   const wrap = $('#quick-materials');
@@ -110,6 +111,49 @@ async function loadHome() {
     : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
   restoreSetupSettings();
   loadSyncInfo();
+}
+
+/* ---------------- ホーム統計 ---------------- */
+
+const MODE_NAMES = { A: '穴埋め', B: '用語説明', C: '入試レベル', D: '英単語' };
+
+function renderHomeStats(data) {
+  let box = $('#home-stats');
+  if (!box) {
+    const stats = $('#stats');
+    box = document.createElement('div');
+    box.id = 'home-stats';
+    stats.after(box);
+  }
+  const parts = [];
+  if (data.leechCount > 0) {
+    parts.push(`<div class="notice error" style="margin-bottom:12px">苦手問題が <b>${data.leechCount}問</b> あります（8回以上不正解）。「復習・履歴」タブで確認しましょう。</div>`);
+  }
+  const byMode = data.byMode || {};
+  const modes = Object.keys(byMode).sort();
+  if (modes.length) {
+    const rows = modes.map((m) => {
+      const s = byMode[m];
+      const total = (s.correct || 0) + (s.partial || 0) + (s.wrong || 0);
+      const pct = total ? Math.round(((s.correct || 0) * 100 + (s.partial || 0) * 50) / total) : 0;
+      return `<div class="mastery-row"><span class="mastery-mode">${MODE_NAMES[m] || m}</span>
+        <span class="mastery-bar"><span class="mastery-fill" style="width:${pct}%"></span></span>
+        <span class="mastery-pct">${pct}%</span></div>`;
+    }).join('');
+    parts.push(`<div class="card"><h2>形式別マスター度</h2>${rows}</div>`);
+  }
+  const act = data.activity || [];
+  if (act.length) {
+    const max = Math.max(...act.map((a) => a.n), 1);
+    const bars = act.map((a) => {
+      const d = new Date(a.day + 'T00:00:00');
+      const label = `${d.getMonth() + 1}/${d.getDate()}`;
+      const h = Math.max(6, Math.round((a.n / max) * 64));
+      return `<div class="act-col"><div class="act-bar" style="height:${h}px" title="${label}: ${a.n}問"></div><div class="act-label">${label}</div></div>`;
+    }).join('');
+    parts.push(`<div class="card"><h2>直近の学習記録</h2><div class="act-chart">${bars}</div></div>`);
+  }
+  box.innerHTML = parts.join('');
 }
 
 /* ---------------- 同期 ---------------- */
@@ -458,7 +502,7 @@ $$('input[name="quick-mode"], input[name="study-mode"]').forEach((r) =>
 
 async function startStudy(materialIds, count, btn, mode = 'mix') {
   if (!statusCache.aiConfigured) {
-    return showNotice('AI（APIキー）が未設定のため採点できません。.env を確認してください。', 'error');
+    showNotice('AI（APIキー）未設定のため、新規作成・記述採点はできません。作成済み問題の復習は可能です。', 'info', 6000);
   }
   saveSetupSettings();
   busy(btn, true);
@@ -485,6 +529,19 @@ async function startStudy(materialIds, count, btn, mode = 'mix') {
   }
 }
 
+function speak(text, lang) {
+  try {
+    if (!('speechSynthesis' in window) || !text) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.rate = 0.9;
+    window.speechSynthesis.speak(u);
+  } catch {
+    /* ignore */
+  }
+}
+
 function renderQuestion(q, index, total) {
   clearNextTimer();
   $('#q-question-card').classList.remove('is-correct', 'is-partial', 'is-wrong');
@@ -501,9 +558,6 @@ function renderQuestion(q, index, total) {
       : `「${esc(q.theme)}」について、自分の言葉で説明してください。`)
     + (q.mode === 'B' && Array.isArray(q.points) && q.points.length
       ? `<div class="q-points"><b>説明の観点（これを含めると高評価）:</b><ul>${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`
-      : '')
-    + (q.mode === 'D' && q.explanation
-      ? `<div class="q-points"><b>例文:</b> ${esc(q.explanation)}</div>`
       : '');
   const area = $('#q-answer-area');
   const hintWrap = $('#q-hint-wrap');
@@ -546,8 +600,18 @@ function renderQuestion(q, index, total) {
     hintWrap.classList.add('hidden');
     hintWrap.innerHTML = '';
     area.innerHTML = `<div class="q-answer-label">答えを入力してください<span class="kbd">Enter で回答・採点</span></div>
-      <input type="text" id="q-input" autocomplete="off" placeholder="答えを入力" autofocus inputmode="${q.direction === 'en_to_ja' ? 'text' : 'text'}">`;
+      <input type="text" id="q-input" autocomplete="off" placeholder="答えを入力" autofocus>`;
     $('#q-input').focus();
+    // 英→日では出題英単語の読み上げ可（日→英では答えが漏れるので付けない）
+    if (q.direction === 'en_to_ja' && q.theme) {
+      const btn = document.createElement('button');
+      btn.className = 'speak-btn';
+      btn.type = 'button';
+      btn.textContent = '🔊 発音を聞く';
+      btn.addEventListener('click', () => speak(q.theme, 'en-US'));
+      $('#q-text').appendChild(document.createTextNode(' '));
+      $('#q-text').appendChild(btn);
+    }
   } else {
     hintWrap.classList.add('hidden');
     hintWrap.innerHTML = '';
@@ -630,7 +694,15 @@ function renderResult(data, answer) {
     ? `<div class="result-answer"><span class="lbl">答え:</span> ${esc(q.text).replace(/（　）/g, `<span class="correct-answer">${esc(data.correctAnswer)}</span>`)}</div>`
     : q?.mode === 'C'
       ? `<div class="result-answer"><span class="lbl">正解:</span> <span class="correct-answer">${esc(data.correctAnswer)}</span></div>`
-      : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}</div>`;
+      : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}${q?.mode === 'D' ? ' <button class="speak-btn" id="q-speak-answer" type="button">🔊</button>' : ''}</div>`;
+  if (q?.mode === 'D') {
+    setTimeout(() => {
+      $('#q-speak-answer')?.addEventListener('click', () => {
+        const lang = q.direction === 'ja_to_en' ? 'en-US' : 'ja-JP';
+        speak(data.correctAnswer, lang);
+      });
+    }, 0);
+  }
   box.innerHTML = `
     <h2>採点結果</h2>
     <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
@@ -668,11 +740,11 @@ function renderResult(data, answer) {
     nextBtn.textContent = '次の問題へ';
   });
   nextBtn.focus();
-  box.addEventListener('click', (e) => {
+  box.onclick = (e) => {
     if (nextBtn.disabled) return;
     if (e.target.closest('#q-next')) return;
     advance();
-  });
+  };
   if ($('#q-autonext').checked) startNextTimer(nextBtn, advance);
 }
 
@@ -753,10 +825,10 @@ function endSession(stats) {
     $('#study-setup').classList.remove('hidden');
     loadStudySetup();
   });
-  $('#q-result').addEventListener('click', (e) => {
+  $('#q-result').onclick = (e) => {
     if (e.target.closest('#q-back-setup')) return;
     $('#q-back-setup').click();
-  });
+  };
   $('#q-back-setup').focus();
 }
 
@@ -777,15 +849,18 @@ async function loadReview() {
       rt.innerHTML = '<tr><td>まだ復習データがありません。出題して回答するとここに表示されます。</td></tr>';
     } else {
       rt.innerHTML = `<tr><th>問題</th><th>資料</th><th>次回出題</th><th>間隔</th><th>連続正解</th><th>累計 正/誤</th><th>直前結果</th></tr>` +
-        r.review.map((x) => `<tr>
-          <td>${modeBadge(x.mode)} ${esc(x.mode === 'A' ? x.text : x.theme)}</td>
+        r.review.map((x) => {
+          const leech = (x.total_wrong || 0) >= 8;
+          return `<tr${leech ? ' class="is-leech"' : ''}>
+          <td>${modeBadge(x.mode)} ${esc(x.mode === 'A' ? x.text : x.theme)}${leech ? ' <span class="badge leech">要対策</span>' : ''}</td>
           <td>${esc(x.material_title)}</td>
           <td>${esc(x.next_review_at)}</td>
           <td>${x.interval_days}日</td>
           <td>${x.consecutive_correct}回</td>
           <td>${x.total_correct} / ${x.total_wrong}</td>
           <td>${resultBadge(x.last_result)}</td>
-        </tr>`).join('');
+        </tr>`;
+        }).join('');
     }
 
     const ht = $('#history-table');
