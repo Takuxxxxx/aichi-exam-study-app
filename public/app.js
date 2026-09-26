@@ -482,7 +482,7 @@ $('#study-start').addEventListener('click', () => {
 
 function selectedMode(name) {
   const el = document.querySelector(`input[name="${name}"]:checked`);
-  return el ? el.value : 'mix';
+  return el ? el.value : 'A';
 }
 
 function selectedDirection(name) {
@@ -500,7 +500,7 @@ $$('input[name="quick-mode"], input[name="study-mode"]').forEach((r) =>
   r.addEventListener('change', () => syncDirectionVisibility(r.name.replace('-mode', '')))
 );
 
-async function startStudy(materialIds, count, btn, mode = 'mix') {
+async function startStudy(materialIds, count, btn, mode = 'A') {
   if (!statusCache.aiConfigured) {
     showNotice('AI（APIキー）未設定のため、新規作成・記述採点はできません。作成済み問題の復習は可能です。', 'info', 6000);
   }

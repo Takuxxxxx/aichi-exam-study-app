@@ -324,7 +324,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   } catch (e) {
     console.error('自動同期（取得）をスキップ:', e.message);
   }
-  const { materialIds = [], count = 10, mode = 'mix', direction = 'ja_to_en' } = req.body;
+  const { materialIds = [], count = 10, mode = 'A', direction = 'ja_to_en' } = req.body;
   const dir = ['ja_to_en', 'en_to_ja', 'both'].includes(direction) ? direction : 'ja_to_en';
   const ids = Array.isArray(materialIds) ? materialIds.filter(Boolean).map(Number) : [];
   if (!ids.length) {
@@ -338,7 +338,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   const target = Math.max(1, Math.min(Number(count) || 10, 30));
   const queue = [];
 
-  const modeFilter = mode === 'mix' ? null : mode;
+  const modeFilter = ['A', 'B', 'C', 'D'].includes(mode) ? mode : 'A';
   const dirFilter = modeFilter === 'D' && dir !== 'both' ? dir : null;
 
   const due = db.pickDueQuestions({ materialIds: ids, mode: modeFilter, direction: dirFilter, limit: target });
@@ -376,9 +376,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
       else if (mode === 'C') modeC = n;
       else if (mode === 'D') modeD = n;
       else {
-        modeA = Math.max(1, Math.round(n * 0.5));
-        modeB = Math.max(0, Math.round(n * 0.25));
-        modeC = n - modeA - modeB;
+        modeA = n;
       }
       try {
         const { questions } = await generateProblems({
