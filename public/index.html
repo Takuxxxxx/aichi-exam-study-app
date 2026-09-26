@@ -16,10 +16,10 @@
   <header class="topbar">
     <h1><span>愛知県公立高校入試対策 暗記アプリ</span><button id="theme-toggle" class="theme-toggle" type="button" title="ダークモード切替">🌙</button></h1>
     <nav class="tabs">
-      <button data-tab="home" class="tab active">ホーム</button>
+      <button data-tab="study" class="tab active">出題</button>
+      <button data-tab="home" class="tab">ホーム</button>
       <button data-tab="materials" class="tab">資料</button>
       <button data-tab="questions" class="tab">問題管理</button>
-      <button data-tab="study" class="tab">出題</button>
       <button data-tab="review" class="tab">復習・履歴</button>
     </nav>
   </header>
@@ -28,8 +28,7 @@
     <div id="notice" class="notice hidden"></div>
 
     <!-- ======== ホーム ======== -->
-    <section id="tab-home" class="tab-panel active">
-      <div class="stats" id="stats"></div>
+    <section id="tab-home" class="tab-panel">
       <div class="card">
         <h2>クイック出題</h2>
         <p>資料を選んで、その場で問題を解き始められます。</p>
@@ -57,6 +56,7 @@
         </div>
         <button id="quick-start" class="btn primary">出題を始める</button>
       </div>
+      <div class="stats" id="stats"></div>
       <div class="card" id="sync-card">
         <h2>データ同期（PC⇔クラウド）</h2>
         <p class="hint">出題開始時と回答後に自動同期します。手動でも実行できます。</p>
@@ -121,7 +121,7 @@
     </section>
 
     <!-- ======== 出題 ======== -->
-    <section id="tab-study" class="tab-panel">
+    <section id="tab-study" class="tab-panel active">
       <div id="study-setup" class="card">
         <h2>出題セットを作成</h2>
         <div id="study-materials"></div>

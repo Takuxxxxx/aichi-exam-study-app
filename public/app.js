@@ -959,7 +959,7 @@ async function loadReview() {
 async function init() {
   initTheme();
   await loadStatus();
-  await loadHome();
+  switchTab('study');
 }
 
 init();
