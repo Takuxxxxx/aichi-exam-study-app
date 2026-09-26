@@ -300,6 +300,58 @@ tr.is-leech td { background: #fdf2f2; }
 .speak-btn { border: 1px solid var(--border); background: var(--code); border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer; margin-left: 8px; }
 .speak-btn:hover { background: #e2e8ee; }
 
+/* ---------------- アニメーション ---------------- */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.tab-panel.active { animation: panel-in 0.25s ease-out; }
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+.q-enter { animation: card-in 0.28s ease-out; }
+
+.btn { transition: transform 0.08s ease, background 0.15s ease; }
+.btn:active:not(:disabled) { transform: scale(0.96); }
+.tab { transition: background 0.15s ease, transform 0.08s ease; }
+.tab:active { transform: scale(0.95); }
+
+.choice-item { transition: border-color 0.15s, background 0.15s, transform 0.08s ease; }
+.choice-item:active { transform: scale(0.99); }
+@keyframes choice-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.015); }
+  100% { transform: scale(1); }
+}
+.choice-item:has(input[type="radio"]:checked):not(:has(input[type="radio"]:disabled)) {
+  border-color: var(--primary);
+  background: #e7f0fb;
+  animation: choice-pop 0.2s ease;
+}
+[data-theme="dark"] .choice-item:has(input[type="radio"]:checked):not(:has(input[type="radio"]:disabled)) {
+  background: #1c2f45;
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.modal:not(.hidden) .modal-box { animation: modal-in 0.22s ease-out; }
+
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+.notice:not(.hidden) { animation: notice-in 0.2s ease-out; }
+
+.stat-box .num { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
 /* ---------------- スマホ対応 ---------------- */
 @media (max-width: 640px) {
   main { margin: 12px auto; padding: 0 10px; }

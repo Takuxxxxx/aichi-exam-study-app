@@ -118,11 +118,12 @@ async function loadStatus() {
 async function loadHome() {
   const data = await api('/api/stats');
   $('#stats').innerHTML = `
-    <div class="stat-box"><div class="num">${data.materials}</div><div class="label">資料</div></div>
-    <div class="stat-box"><div class="num">${data.questions}</div><div class="label">問題</div></div>
-    <div class="stat-box"><div class="num">${data.dueCount}</div><div class="label">復習待ち</div></div>
-    <div class="stat-box"><div class="num">${data.historyCount}</div><div class="label">回答履歴</div></div>
+    <div class="stat-box"><div class="num" data-count="${data.materials}">0</div><div class="label">資料</div></div>
+    <div class="stat-box"><div class="num" data-count="${data.questions}">0</div><div class="label">問題</div></div>
+    <div class="stat-box"><div class="num" data-count="${data.dueCount}">0</div><div class="label">復習待ち</div></div>
+    <div class="stat-box"><div class="num" data-count="${data.historyCount}">0</div><div class="label">回答履歴</div></div>
   `;
+  animateCounts();
   renderHomeStats(data);
 
   const mats = await loadMaterialsCache();
@@ -181,6 +182,25 @@ function renderHomeStats(data) {
     parts.push(`<div class="card"><h2>直近の学習記録</h2><div class="act-chart">${bars}</div></div>`);
   }
   box.innerHTML = parts.join('');
+}
+
+function animateCounts() {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $$('#stats .num[data-count]').forEach((el) => {
+    const target = Number(el.dataset.count) || 0;
+    if (reduce || target <= 0) {
+      el.textContent = target;
+      return;
+    }
+    const t0 = performance.now();
+    const dur = Math.min(600, 200 + target * 2);
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / dur);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 /* ---------------- 同期 ---------------- */
@@ -592,7 +612,12 @@ function speak(text, lang) {
 
 function renderQuestion(q, index, total) {
   clearNextTimer();
-  $('#q-question-card').classList.remove('is-correct', 'is-partial', 'is-wrong');
+  const qc = $('#q-question-card');
+  qc.classList.remove('is-correct', 'is-partial', 'is-wrong');
+  // 新出題のスライドインを再発火
+  qc.classList.remove('q-enter');
+  void qc.offsetWidth;
+  qc.classList.add('q-enter');
   const banner = $('#q-result-banner');
   banner.classList.add('hidden');
   banner.textContent = '';
