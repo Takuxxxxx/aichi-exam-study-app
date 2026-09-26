@@ -139,6 +139,7 @@ async function loadHome() {
     : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
   restoreSetupSettings();
   loadSyncInfo();
+  refreshLeechCount();
 }
 
 /* ---------------- ホーム統計 ---------------- */
@@ -523,16 +524,19 @@ async function loadStudySetup() {
 }
 
 async function refreshLeechCount() {
-  const el = $('#leech-count');
-  const btn = $('#study-leech');
-  if (!el || !btn) return;
+  let n = 0;
   try {
     const data = await api('/api/leech');
-    const n = (data.leech || []).length;
+    n = (data.leech || []).length;
+  } catch {
+    /* ignore */
+  }
+  for (const [hintSel, btnSel] of [['#leech-count', '#study-leech'], ['#quick-leech-count', '#quick-leech']]) {
+    const el = $(hintSel);
+    const btn = $(btnSel);
+    if (!el || !btn) continue;
     el.textContent = n ? `苦手問題：${n}問（8回以上不正解）` : '苦手問題はまだありません';
     btn.disabled = !n;
-  } catch {
-    el.textContent = '';
   }
 }
 
@@ -546,6 +550,12 @@ $('#study-leech')?.addEventListener('click', () => {
   const ids = [...$$('.study-mat:checked')].map((c) => Number(c.value));
   if (!ids.length) return showNotice('資料を1つ以上選択してください。', 'error');
   startStudy(ids, Number($('#study-count').value), $('#study-leech'), selectedMode('study-mode'), true);
+});
+
+$('#quick-leech')?.addEventListener('click', () => {
+  const ids = [...$$('.quick-mat:checked')].map((c) => Number(c.value));
+  if (!ids.length) return showNotice('資料を1つ以上選択してください。', 'error');
+  startStudy(ids, Number($('#quick-count').value), $('#quick-leech'), selectedMode('quick-mode'), true);
 });
 
 function selectedMode(name) {
@@ -575,7 +585,7 @@ async function startStudy(materialIds, count, btn, mode = 'A', leechOnly = false
   saveSetupSettings();
   busy(btn, true);
   try {
-    const direction = mode === 'D' ? selectedDirection(btn.id === 'quick-start' ? 'quick-direction' : 'study-direction') : 'ja_to_en';
+    const direction = mode === 'D' ? selectedDirection(btn.id.startsWith('quick-') ? 'quick-direction' : 'study-direction') : 'ja_to_en';
     const data = await api('/api/session/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -959,7 +969,7 @@ async function loadReview() {
 async function init() {
   initTheme();
   await loadStatus();
-  switchTab('study');
+  await loadHome();
 }
 
 init();
