@@ -1,6 +1,6 @@
 // Service Worker: 静的ファイルのみキャッシュ（APIは素通し）
 // 静的ファイルを更新したら VERSION を上げること
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'anki-shell-' + VERSION;
 const SHELL = ['.', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest'];
 

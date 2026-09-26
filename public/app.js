@@ -61,6 +61,33 @@ function busy(btn, on) {
   }
 }
 
+/* ---------------- テーマ ---------------- */
+
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try {
+    localStorage.setItem('anki-theme', t);
+  } catch {
+    /* ignore */
+  }
+  const b = $('#theme-toggle');
+  if (b) b.textContent = t === 'dark' ? '☀️' : '🌙';
+}
+
+function initTheme() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem('anki-theme');
+  } catch {
+    /* ignore */
+  }
+  applyTheme(saved || document.documentElement.dataset.theme || 'light');
+}
+
+$('#theme-toggle')?.addEventListener('click', () => {
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+
 /* ---------------- タブ ---------------- */
 
 function switchTab(name) {
@@ -472,12 +499,33 @@ async function loadStudySetup() {
         </div>`).join('')
     : '<div class="hint">資料がまだありません。「資料」タブから登録してください。</div>';
   restoreSetupSettings();
+  refreshLeechCount();
+}
+
+async function refreshLeechCount() {
+  const el = $('#leech-count');
+  const btn = $('#study-leech');
+  if (!el || !btn) return;
+  try {
+    const data = await api('/api/leech');
+    const n = (data.leech || []).length;
+    el.textContent = n ? `苦手問題：${n}問（8回以上不正解）` : '苦手問題はまだありません';
+    btn.disabled = !n;
+  } catch {
+    el.textContent = '';
+  }
 }
 
 $('#study-start').addEventListener('click', () => {
   const ids = [...$$('.study-mat:checked')].map((c) => Number(c.value));
   if (!ids.length) return showNotice('資料を1つ以上選択してください。', 'error');
   startStudy(ids, Number($('#study-count').value), $('#study-start'), selectedMode('study-mode'));
+});
+
+$('#study-leech')?.addEventListener('click', () => {
+  const ids = [...$$('.study-mat:checked')].map((c) => Number(c.value));
+  if (!ids.length) return showNotice('資料を1つ以上選択してください。', 'error');
+  startStudy(ids, Number($('#study-count').value), $('#study-leech'), selectedMode('study-mode'), true);
 });
 
 function selectedMode(name) {
@@ -500,7 +548,7 @@ $$('input[name="quick-mode"], input[name="study-mode"]').forEach((r) =>
   r.addEventListener('change', () => syncDirectionVisibility(r.name.replace('-mode', '')))
 );
 
-async function startStudy(materialIds, count, btn, mode = 'A') {
+async function startStudy(materialIds, count, btn, mode = 'A', leechOnly = false) {
   if (!statusCache.aiConfigured) {
     showNotice('AI（APIキー）未設定のため、新規作成・記述採点はできません。作成済み問題の復習は可能です。', 'info', 6000);
   }
@@ -511,7 +559,7 @@ async function startStudy(materialIds, count, btn, mode = 'A') {
     const data = await api('/api/session/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ materialIds, count, mode, direction }),
+      body: JSON.stringify({ materialIds, count, mode, direction, leechOnly }),
     });
     sessionToken = data.token;
     if (data.reused > 0) {
@@ -884,6 +932,7 @@ async function loadReview() {
 /* ---------------- 初期化 ---------------- */
 
 async function init() {
+  initTheme();
   await loadStatus();
   await loadHome();
 }

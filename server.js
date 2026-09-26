@@ -324,7 +324,7 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   } catch (e) {
     console.error('自動同期（取得）をスキップ:', e.message);
   }
-  const { materialIds = [], count = 10, mode = 'A', direction = 'ja_to_en' } = req.body;
+  const { materialIds = [], count = 10, mode = 'A', direction = 'ja_to_en', leechOnly = false } = req.body;
   const dir = ['ja_to_en', 'en_to_ja', 'both'].includes(direction) ? direction : 'ja_to_en';
   const ids = Array.isArray(materialIds) ? materialIds.filter(Boolean).map(Number) : [];
   if (!ids.length) {
@@ -339,6 +339,28 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
   const queue = [];
 
   const modeFilter = ['A', 'B', 'C', 'D'].includes(mode) ? mode : 'A';
+
+  // 苦手だけ集中モード：leechのみで出題（新規生成・補充なし、AI不要）
+  if (leechOnly) {
+    const leech = db.listLeech(8, target, { materialIds: ids, mode: modeFilter });
+    if (!leech.length) {
+      return res.status(400).json({ error: '苦手問題がありません。まずは通常出題で学習してください。' });
+    }
+    queue.push(...leech);
+    queue.length = Math.min(queue.length, target);
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [queue[i], queue[j]] = [queue[j], queue[i]];
+    }
+    const token = crypto.randomBytes(16).toString('hex');
+    sessions.set(token, {
+      queue,
+      stats: { answered: 0, correct: 0, partial: 0, wrong: 0, totalScore: 0 },
+      history: [],
+    });
+    persistSession(token);
+    return res.json({ token, total: queue.length, reused: queue.length, leech: true });
+  }
   const dirFilter = modeFilter === 'D' && dir !== 'both' ? dir : null;
 
   const due = db.pickDueQuestions({ materialIds: ids, mode: modeFilter, direction: dirFilter, limit: target });

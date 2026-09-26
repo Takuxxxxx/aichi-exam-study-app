@@ -10,10 +10,11 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <title>愛知県入試対策 暗記アプリ</title>
   <link rel="stylesheet" href="style.css">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('anki-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}catch(e){}</script>
 </head>
 <body>
   <header class="topbar">
-    <h1>愛知県公立高校入試対策 暗記アプリ</h1>
+    <h1><span>愛知県公立高校入試対策 暗記アプリ</span><button id="theme-toggle" class="theme-toggle" type="button" title="ダークモード切替">🌙</button></h1>
     <nav class="tabs">
       <button data-tab="home" class="tab active">ホーム</button>
       <button data-tab="materials" class="tab">資料</button>
@@ -146,6 +147,8 @@
           <label><input type="radio" name="study-direction" value="en_to_ja"> 英語→日本語</label>
         </div>
         <button id="study-start" class="btn primary">出題を開始</button>
+        <button id="study-leech" class="btn">苦手だけ集中出題</button>
+        <div id="leech-count" class="hint"></div>
         <div class="hint">復習待ち・未回答の問題があればそれを優先して出題し、足りない分だけAIが新規生成します（数秒〜数十秒かかります）。同じ問題は1回の出題内では再出題されません。間違えた問題は間隔を空けて復習として再出題されます。</div>
       </div>
 
