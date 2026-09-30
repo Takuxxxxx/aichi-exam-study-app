@@ -732,7 +732,8 @@ function renderQuestion(q, index, total) {
   banner.textContent = '';
   $('#session-progress').textContent = `第 ${index} / ${total} 問` + accuracyLabel(_lastStats);
   $('#q-badge').innerHTML = modeBadge(q.mode)
-    + (q.level === 'application' ? '<span class="badge app">応用レベル</span>' : '');
+    + (q.level === 'application' ? '<span class="badge app">応用レベル</span>' : '')
+    + (q._requeue ? '<span class="badge requeue">再出題</span>' : '');
   $('#q-text').innerHTML = (q.mode === 'A'
     ? esc(q.text).replace(/（　）/g, '<span style="border-bottom:2px solid var(--primary); padding:0 12px;">　　　</span>')
     : q.mode === 'C' || q.mode === 'D'

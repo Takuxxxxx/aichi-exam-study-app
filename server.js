@@ -348,6 +348,13 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
     }
     queue.push(...leech);
     queue.length = Math.min(queue.length, target);
+    {
+      const seenIds = new Set();
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (seenIds.has(queue[i].id)) queue.splice(i, 1);
+        else seenIds.add(queue[i].id);
+      }
+    }
     for (let i = queue.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [queue[i], queue[j]] = [queue[j], queue[i]];
@@ -458,6 +465,15 @@ app.post('/api/session/start', asyncSafe(async (req, res) => {
 
   queue.length = Math.min(queue.length, target);
 
+  // 同一問題の二重混入を除去（防御）
+  {
+    const seenIds = new Set();
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (seenIds.has(queue[i].id)) queue.splice(i, 1);
+      else seenIds.add(queue[i].id);
+    }
+  }
+
   // 同じ分野の連続出題を避けるためシャッフルする（交互学習効果）
   for (let i = queue.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -539,6 +555,7 @@ app.post('/api/session/:token/answer', asyncSafe(async (req, res) => {
 
   // 間違い・部分点は数問後に同じ出題内で再出題する（Anki方式）
   if (next.requeue) {
+    question._requeue = true;
     s.queue.splice(Math.min(REQUEUE_GAP, s.queue.length), 0, question);
   }
   const nextQuestion = findNextQuestion(s);
