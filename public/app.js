@@ -88,6 +88,87 @@ $('#theme-toggle')?.addEventListener('click', () => {
   applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
 });
 
+/* ---------------- セッション維持 ---------------- */
+
+let wakeLock = null;
+async function lockScreen() {
+  try {
+    if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+  } catch {
+    /* ignore */
+  }
+}
+function unlockScreen() {
+  try {
+    wakeLock?.release?.();
+  } catch {
+    /* ignore */
+  }
+  wakeLock = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && sessionToken && !$('#study-session').classList.contains('hidden')) {
+    lockScreen();
+  }
+});
+
+function clearSessionToken() {
+  sessionToken = null;
+  unlockScreen();
+  try {
+    sessionStorage.removeItem('anki-session');
+  } catch {
+    /* ignore */
+  }
+}
+
+function buzz(result) {
+  try {
+    if ('vibrate' in navigator) navigator.vibrate(result === 'correct' ? 25 : [60, 60, 60]);
+  } catch {
+    /* ignore */
+  }
+}
+
+// リロード・誤終了後の続き再開
+async function checkResume() {
+  let token = null;
+  try {
+    token = sessionStorage.getItem('anki-session');
+  } catch {
+    /* ignore */
+  }
+  const btn = $('#session-resume');
+  if (!btn) return;
+  if (!token) {
+    btn.classList.add('hidden');
+    return;
+  }
+  try {
+    const s = await api(`/api/session/${token}`);
+    const rest = s.total - (s.stats?.answered || 0);
+    if (rest <= 0) {
+      clearSessionToken();
+      btn.classList.add('hidden');
+      return;
+    }
+    btn.classList.remove('hidden');
+    btn.textContent = `前回の続きから再開（残り${rest}問）`;
+    btn.onclick = () => {
+      sessionToken = token;
+      lockScreen();
+      $('#study-setup').classList.add('hidden');
+      $('#study-session').classList.remove('hidden');
+      $('#q-result').classList.add('hidden');
+      btn.classList.add('hidden');
+      switchTab('study');
+      fetchNextQuestion().catch((e) => showNotice(e.message, 'error'));
+    };
+  } catch {
+    btn.classList.add('hidden');
+  }
+}
+
 /* ---------------- タブ ---------------- */
 
 function switchTab(name) {
@@ -140,6 +221,7 @@ async function loadHome() {
   restoreSetupSettings();
   loadSyncInfo();
   refreshLeechCount();
+  checkResume();
 }
 
 /* ---------------- ホーム統計 ---------------- */
@@ -584,6 +666,13 @@ async function startStudy(materialIds, count, btn, mode = 'A', leechOnly = false
   }
   saveSetupSettings();
   busy(btn, true);
+  const progressMsgs = ['問題を準備中…', '作成済み問題を確認中…', 'AIが新規問題を作成中…（数十秒かかることがあります）'];
+  let progressIdx = 0;
+  showNotice(progressMsgs[0], 'info', 0);
+  const progressTimer = setInterval(() => {
+    progressIdx = (progressIdx + 1) % progressMsgs.length;
+    showNotice(progressMsgs[progressIdx], 'info', 0);
+  }, 5000);
   try {
     const direction = mode === 'D' ? selectedDirection(btn.id.startsWith('quick-') ? 'quick-direction' : 'study-direction') : 'ja_to_en';
     const data = await api('/api/session/start', {
@@ -591,9 +680,18 @@ async function startStudy(materialIds, count, btn, mode = 'A', leechOnly = false
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ materialIds, count, mode, direction, leechOnly }),
     });
+    clearInterval(progressTimer);
     sessionToken = data.token;
+    try {
+      sessionStorage.setItem('anki-session', data.token);
+    } catch {
+      /* ignore */
+    }
+    lockScreen();
     if (data.reused > 0) {
       showNotice(`作成済みの問題 ${data.reused} 問を再利用しました（不足分だけ新規作成）`, 'info', 6000);
+    } else {
+      $('#notice').classList.add('hidden');
     }
     $('#study-setup').classList.add('hidden');
     $('#study-session').classList.remove('hidden');
@@ -601,6 +699,7 @@ async function startStudy(materialIds, count, btn, mode = 'A', leechOnly = false
     await fetchNextQuestion();
     switchTab('study');
   } catch (e) {
+    clearInterval(progressTimer);
     showNotice(e.message, 'error', 8000);
   } finally {
     busy(btn, false);
@@ -753,6 +852,7 @@ $('#q-submit').addEventListener('click', async () => {
 function renderResult(data, answer) {
   const g = data.grading;
   const q = window._currentQuestion;
+  buzz(g.result);
   $('#q-submit').classList.add('hidden');
   const card = $('#q-question-card');
   card.classList.remove('is-correct', 'is-partial', 'is-wrong');
@@ -915,7 +1015,7 @@ function endSession(stats) {
     </div>
     <div class="tap-next-hint">画面のどこをタップしても出題セットへ戻ります</div>`;
   $('#q-back-setup').addEventListener('click', () => {
-    sessionToken = null;
+    clearSessionToken();
     $('#study-session').classList.add('hidden');
     $('#study-setup').classList.remove('hidden');
     loadStudySetup();
@@ -928,7 +1028,7 @@ function endSession(stats) {
 }
 
 $('#session-quit').addEventListener('click', () => {
-  sessionToken = null;
+  clearSessionToken();
   $('#study-session').classList.add('hidden');
   $('#study-setup').classList.remove('hidden');
 });

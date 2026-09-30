@@ -55,6 +55,7 @@
         </div>
         <button id="quick-start" class="btn primary">出題を始める</button>
         <button id="quick-leech" class="btn">苦手だけ集中出題</button>
+        <button id="session-resume" class="btn primary hidden">前回の続きから再開</button>
         <div id="quick-leech-count" class="hint"></div>
       </div>
       <div class="stats" id="stats"></div>
@@ -166,7 +167,7 @@
           <div id="q-answer-area"></div>
           <button id="q-submit" class="btn primary">回答して採点</button>
           <div id="q-waiting" class="hint hidden">AI採点中…（数秒かかります）</div>
-          <label class="auto-next"><input type="checkbox" id="q-autonext"> 自動で次へ進む（3秒）</label>
+          <label class="auto-next"><input type="checkbox" id="q-autonext" checked> 自動で次へ進む（3秒）</label>
         </div>
         <div id="q-result" class="card hidden"></div>
       </div>
