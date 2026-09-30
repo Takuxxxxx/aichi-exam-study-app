@@ -773,20 +773,30 @@ function renderResult(data, answer) {
   const missingHtml = missing.length
     ? `<div class="result-feedback bad"><b>不足・間違っていた点:</b><br>${missing.map((p) => `・${esc(p)}`).join('<br>')}</div>`
     : '';
-  const correctLine = q?.mode === 'A'
-    ? `<div class="result-answer"><span class="lbl">答え:</span> ${esc(q.text).replace(/（　）/g, `<span class="correct-answer">${esc(data.correctAnswer)}</span>`)}</div>`
-    : q?.mode === 'C'
-      ? `<div class="result-answer"><span class="lbl">正解:</span> <span class="correct-answer">${esc(data.correctAnswer)}</span></div>`
-      : `<div class="result-answer"><span class="lbl">正解:</span> ${esc(data.correctAnswer)}${q?.mode === 'D' ? ' <button class="speak-btn" id="q-speak-answer" type="button">🔊</button>' : ''}</div>`;
+  const bindSpeak = () => {
+    $('#q-speak-answer')?.addEventListener('click', () => {
+      const lang = q.direction === 'ja_to_en' ? 'en-US' : 'ja-JP';
+      speak(data.correctAnswer, lang);
+    });
+  };
+  // 英単語は最小表示（正解→〇のみ、不正解→赤字で答えのみ。解説なし）
   if (q?.mode === 'D') {
-    setTimeout(() => {
-      $('#q-speak-answer')?.addEventListener('click', () => {
-        const lang = q.direction === 'ja_to_en' ? 'en-US' : 'ja-JP';
-        speak(data.correctAnswer, lang);
-      });
-    }, 0);
-  }
-  box.innerHTML = `
+    box.innerHTML = `
+    <h2>採点結果</h2>
+    <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
+    ${g.result !== 'correct' ? `<div class="result-answer"><span class="lbl">正解:</span> <span class="correct-answer">${esc(data.correctAnswer)}</span> <button class="speak-btn" id="q-speak-answer" type="button">🔊</button></div>` : ''}
+    <div class="modal-actions">
+      <button class="btn primary" id="q-next">次の問題へ<span class="kbd">Enter / スペース</span></button>
+    </div>
+    <div class="tap-next-hint">画面のどこをタップしても次へ進みます</div>`;
+    setTimeout(bindSpeak, 0);
+  } else {
+    const correctLine = q?.mode === 'A'
+      ? `<div class="result-answer"><span class="lbl">答え:</span> ${esc(q.text).replace(/（　）/g, `<span class="correct-answer">${esc(data.correctAnswer)}</span>`)}</div>`
+      : g.result !== 'correct'
+        ? `<div class="result-answer"><span class="lbl">正解:</span> <span class="correct-answer">${esc(data.correctAnswer)}</span></div>`
+        : '';
+    box.innerHTML = `
     <h2>採点結果</h2>
     <div class="result-answer"><span class="lbl">あなたの解答:</span> ${esc(answer)}</div>
     ${goodHtml}
@@ -797,6 +807,7 @@ function renderResult(data, answer) {
       <button class="btn primary" id="q-next">次の問題へ<span class="kbd">Enter / スペース</span></button>
     </div>
     <div class="tap-next-hint">画面のどこをタップしても次へ進みます</div>`;
+  }
   if (q?.mode === 'C') {
     const ci = Number(q.correct_index);
     const items = document.querySelectorAll('.choice-item');
@@ -860,8 +871,9 @@ document.addEventListener('keydown', (e) => {
   const tag = e.target.tagName;
   const typing = tag === 'INPUT' || tag === 'TEXTAREA';
   if (typing && e.key === 'Enter') {
+    if (e.isComposing) return;
     const mode = window._currentQuestion?.mode;
-    if (mode === 'A' && e.target.id === 'q-input') {
+    if ((mode === 'A' || mode === 'D') && e.target.id === 'q-input') {
       e.preventDefault();
       $('#q-submit').click();
       return;
